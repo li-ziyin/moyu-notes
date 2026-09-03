@@ -7,6 +7,7 @@ import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import loader from '@monaco-editor/loader'
 import { useMarkdownShortcuts } from '@/composables/useMarkdownShortcuts'
 import { detectPrefix, getNextPrefix } from '@/utils/smartIndent'
+import { useArticleStore } from '@/stores/article'
 
 const props = withDefaults(
   defineProps<{
@@ -21,11 +22,14 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'change', value: string): void
+  (e: 'imagePaste', file: File): void
 }>()
 
 const editorContainer = ref<HTMLDivElement>()
 let monacoInstance: any = null
 let editorInstance: any = null
+let editorDom: HTMLElement | null = null
+let completionDisposable: any = null
 
 const { register: registerShortcuts, dispose: disposeShortcuts } =
   useMarkdownShortcuts()
@@ -105,6 +109,74 @@ function handleEnter() {
   editor.trigger('moyu', 'type', { text: '\n' })
 }
 
+/** 粘贴图片 → 交给父组件入库，在光标处插入 asset 引用 */
+function onPaste(e: ClipboardEvent) {
+  if (isComposing) return
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) {
+        e.preventDefault()
+        e.stopPropagation()
+        emit('imagePaste', file)
+      }
+      return
+    }
+  }
+}
+
+/** 在光标处插入文本（供父组件调用，如插入图片引用） */
+function insertText(text: string) {
+  if (!editorInstance) return
+  const sel = editorInstance.getSelection()
+  editorInstance.executeEdits('moyu-insert', [{ range: sel, text }])
+  editorInstance.focus()
+}
+
+defineExpose({ insertText })
+
+/** 注册 [[ 双链补全：输入 [[ 后提示全部笔记标题 */
+function registerWikiCompletion() {
+  const articleStore = useArticleStore()
+  completionDisposable = monacoInstance.languages.registerCompletionItemProvider('markdown', {
+    triggerCharacters: ['['],
+    provideCompletionItems: (model: any, position: any) => {
+      const line = model.getLineContent(position.lineNumber)
+      const before = line.slice(0, position.column - 1)
+      const m = before.match(/\[\[([^[\]\n]*)$/)
+      if (!m) return { suggestions: [] }
+
+      const word = m[1]
+      const range = new monacoInstance.Range(
+        position.lineNumber,
+        position.column - word.length,
+        position.lineNumber,
+        position.column
+      )
+      const lower = word.toLowerCase()
+      const suggestions = articleStore.articles
+        .filter(
+          (a) =>
+            a.isDeleted === 0 &&
+            a.id !== articleStore.currentArticleId &&
+            a.title.toLowerCase().includes(lower)
+        )
+        .slice(0, 20)
+        .map((a) => ({
+          label: a.title,
+          kind: monacoInstance.languages.CompletionItemKind.File,
+          insertText: `${a.title}]]`,
+          range,
+          detail: '笔记双链',
+          sortText: a.title.toLowerCase() === lower ? '0' + a.title : '1' + a.title,
+        }))
+      return { suggestions }
+    },
+  })
+}
+
 onMounted(async () => {
   loader.config({
     paths: {
@@ -168,12 +240,14 @@ onMounted(async () => {
   })
 
   // IME 组合追踪：组合期间的 Enter 是确认候选词，不触发智能续行
-  const editorDom = editorInstance.getDomNode()
+  editorDom = editorInstance.getDomNode()
   editorDom?.addEventListener('compositionstart', () => (isComposing = true), true)
   editorDom?.addEventListener('compositionend', () => (isComposing = false), true)
+  editorDom?.addEventListener('paste', onPaste)
 
   registerShortcuts(editorInstance, monacoInstance)
   editorInstance.addCommand(monacoInstance.KeyCode.Enter, handleEnter)
+  registerWikiCompletion()
 })
 
 watch(
@@ -216,6 +290,10 @@ watch(
 
 onBeforeUnmount(() => {
   disposeShortcuts()
+  completionDisposable?.dispose()
+  completionDisposable = null
+  editorDom?.removeEventListener('paste', onPaste)
+  editorDom = null
   if (editorInstance) {
     editorInstance.dispose()
     editorInstance = null

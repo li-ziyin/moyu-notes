@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
+import { ensureAssetUrls, peekAssetUrl } from '@/services/assets'
 
 const props = defineProps<{
   content: string
@@ -19,9 +20,50 @@ const md = new MarkdownIt({
   breaks: true, // 单个回车也变成 <br>
 })
 
+// ── 双链 [[笔记标题]] 内联规则 ──
+function wikiInline(state: any, silent: boolean): boolean {
+  const src = state.src
+  const pos = state.pos
+  if (src[pos] !== '[' || src[pos + 1] !== '[') return false
+  const end = src.indexOf(']]', pos + 2)
+  if (end === -1) return false
+  const title = src.slice(pos + 2, end).trim()
+  if (!title || title.includes('\n')) return false
+  if (!silent) {
+    const token = state.push('wiki_link', '', 0)
+    token.content = title
+  }
+  state.pos = end + 2
+  return true
+}
+
+md.inline.ruler.before('link', 'wiki_link', wikiInline)
+
+md.renderer.rules.wiki_link = (tokens, idx) => {
+  const title = tokens[idx].content
+  return `<a class="wiki-link" data-wiki="${md.utils.escapeHtml(title)}" title="打开笔记：${md.utils.escapeHtml(title)}">${md.utils.escapeHtml(title)}</a>`
+}
+
+// ── asset:// 图片渲染为 blob URL ──
+const PLACEHOLDER_IMG =
+  'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
+const defaultImage = md.renderer.rules.image
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  const token = tokens[idx]
+  const src = token.attrGet('src')
+  if (src?.startsWith('asset://')) {
+    const url = peekAssetUrl(src.slice('asset://'.length))
+    token.attrSet('src', url || PLACEHOLDER_IMG)
+    token.attrSet('class', 'asset-image')
+  }
+  return defaultImage!(tokens, idx, options, env, self)
+}
+
 watch(
   () => props.content,
-  (newContent) => {
+  async (newContent) => {
+    // 先确保图片资产已生成 blob URL，再渲染
+    await ensureAssetUrls(newContent || '')
     html.value = md.render(newContent || '')
   },
   { immediate: true }
@@ -143,6 +185,19 @@ watch(
   :deep(a) {
     color: var(--accent-color);
     text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  // 双链样式
+  :deep(a.wiki-link) {
+    color: var(--accent-color);
+    background: var(--accent-soft);
+    padding: 0 4px;
+    border-radius: 4px;
+    cursor: pointer;
 
     &:hover {
       text-decoration: underline;

@@ -9,6 +9,7 @@ export interface Article {
   isDeleted: number  // 修改：boolean → number（0=正常, 1=已删除）
   wordCount: number
   filePath: string | null  // 文件系统模式下的 .md 文件名
+  encrypted?: number  // 1 = 内容已用 AES-GCM 加密（content 存密文）
 }
 
 // Folder 和 Link 不变
@@ -34,5 +35,14 @@ export interface Snapshot {
   articleId: string
   title: string
   content: string
+  createdAt: number
+}
+
+/** 图片资产（粘贴的图片二进制，正文以 asset://<id> 引用） */
+export interface Asset {
+  id: string
+  articleId: string | null
+  mime: string
+  blob: Blob
   createdAt: number
 }

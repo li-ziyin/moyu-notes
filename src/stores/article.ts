@@ -5,7 +5,9 @@ import * as articleDB from '@/services/db/article'
 import { db } from '@/services/db'
 import * as fsService from '@/services/fs'
 import { updateDoc as searchUpdate, removeDoc as searchRemove } from '@/services/search'
-import { createSnapshot } from '@/services/snapshot'
+import { createSnapshot, deleteAllSnapshots } from '@/services/snapshot'
+import { encryptText, decryptText, isEncryptedPayload } from '@/services/crypto'
+import { syncLinksForArticle, getBacklinks, resolveLinksForTitle } from '@/services/links'
 
 export const useArticleStore = defineStore('article', () => {
   const articles = ref<Article[]>([])
@@ -24,10 +26,41 @@ export const useArticleStore = defineStore('article', () => {
     articles.value.find((a) => a.id === currentArticleId.value) || null
   )
 
-  // 切换文章时同步 currentContent；FS 模式下从文件读取
+  // ── 加密状态 ──
+  /** 本次会话已解锁的文章 id（切换文章后仍保持解锁） */
+  const unlockedIds = ref<string[]>([])
+  /** 解锁密码缓存（仅内存，用于编辑时自动重新加密） */
+  const passwordCache = new Map<string, string>()
+
+  const currentEncrypted = computed(() => {
+    const art = currentArticle.value
+    return !!art && (art.encrypted === 1 || isEncryptedPayload(art.content))
+  })
+
+  const currentLocked = computed(
+    () => currentEncrypted.value && !unlockedIds.value.includes(currentArticleId.value ?? '')
+  )
+
+  // 切换文章时同步 currentContent；加密文章未解锁时内容置空
   watch(currentArticle, async (article) => {
     if (!article) {
       currentContent.value = ''
+      return
+    }
+    if (article.encrypted === 1 || isEncryptedPayload(article.content)) {
+      const pw = passwordCache.get(article.id)
+      if (pw && unlockedIds.value.includes(article.id)) {
+        try {
+          currentContent.value = await decryptText(pw, article.content)
+        } catch {
+          // 密码缓存异常（理论上不会发生），回退锁定态
+          unlockedIds.value = unlockedIds.value.filter((x) => x !== article.id)
+          passwordCache.delete(article.id)
+          currentContent.value = ''
+        }
+      } else {
+        currentContent.value = ''
+      }
       return
     }
     if (isFsMode.value && article.filePath) {
@@ -53,11 +86,13 @@ export const useArticleStore = defineStore('article', () => {
         isFsMode.value = true
         workspaceName.value = ws.directoryName
         await syncFsArticles()
+        rebuildAllLinks()
         return
       }
     }
     // 回退：纯 IndexedDB 模式
     await loadArticles()
+    rebuildAllLinks()
   }
 
   /** 打开文件夹 */
@@ -236,12 +271,22 @@ export const useArticleStore = defineStore('article', () => {
 
   const updateCurrentArticle = async (changes: Partial<Article>) => {
     if (!currentArticleId.value) return
+    const art = articles.value.find((a) => a.id === currentArticleId.value)
+    if (!art) return
+
+    // 加密笔记：落库前用缓存密码重新加密，双链解析仍用明文
+    let plainContent: string | undefined
+    if (changes.content !== undefined && (art.encrypted === 1 || isEncryptedPayload(art.content))) {
+      const pw = passwordCache.get(art.id)
+      if (!pw) return // 锁定态不应触发保存
+      plainContent = changes.content
+      changes = { ...changes, content: await encryptText(pw, changes.content) }
+    }
 
     await articleDB.updateArticle(currentArticleId.value, changes)
 
     // 文件系统模式：写回文件
     if (isFsMode.value && changes.content !== undefined) {
-      const art = articles.value.find((a) => a.id === currentArticleId.value)
       if (art?.filePath) {
         const handle = fileHandles.get(currentArticleId.value)
         if (handle) {
@@ -252,7 +297,6 @@ export const useArticleStore = defineStore('article', () => {
 
     // 文件系统模式下处理标题变更 → 重命名文件
     if (isFsMode.value && changes.title !== undefined) {
-      const art = articles.value.find((a) => a.id === currentArticleId.value)
       if (art?.filePath) {
         const handle = fileHandles.get(currentArticleId.value)
         if (handle) {
@@ -272,6 +316,18 @@ export const useArticleStore = defineStore('article', () => {
     if (idx !== -1) {
       articles.value[idx] = { ...articles.value[idx], ...changes, updatedAt: Date.now() }
       searchUpdate(articles.value[idx])
+    }
+
+    // 双链索引同步（加密笔记用明文解析）
+    const finalContent = plainContent ?? changes.content
+    if (finalContent !== undefined) {
+      const changed = await syncLinksForArticle(art.id, finalContent)
+      if (changed) linkVersion.value++
+    }
+    // 标题落定：回填此前指向该标题但目标尚不存在的空链接
+    if (changes.title !== undefined) {
+      const resolved = await resolveLinksForTitle(changes.title)
+      if (resolved) linkVersion.value++
     }
   }
 
@@ -335,14 +391,14 @@ export const useArticleStore = defineStore('article', () => {
     })
   }
 
-  // ── 自动快照（每 5 分钟） ──
+  // ── 自动快照（每 5 分钟，加密笔记跳过以防明文泄露） ──
   let snapshotTimer: ReturnType<typeof setInterval> | null = null
 
   function startAutoSnapshot() {
     if (snapshotTimer) return
     snapshotTimer = setInterval(() => {
       const art = currentArticle.value
-      if (art && currentContent.value.trim()) {
+      if (art && art.encrypted !== 1 && currentContent.value.trim()) {
         createSnapshot(art.id, art.title, currentContent.value)
       }
     }, 5 * 60 * 1000) // 5 分钟
@@ -387,6 +443,128 @@ export const useArticleStore = defineStore('article', () => {
     if (showTrash.value) loadTrash()
   }
 
+  // ── 双链 ──
+  /** 版本号：Links 表变化时自增，驱动反链/图谱刷新 */
+  const linkVersion = ref(0)
+  /** 当前文章的反向链接（来源文章列表） */
+  const backlinks = ref<{ id: string; title: string }[]>([])
+
+  async function refreshBacklinks() {
+    const id = currentArticleId.value
+    if (!id) {
+      backlinks.value = []
+      return
+    }
+    const links = await getBacklinks(id)
+    const out: { id: string; title: string }[] = []
+    for (const l of links) {
+      const src = articles.value.find((a) => a.id === l.sourceId && a.isDeleted === 0)
+      if (src) out.push({ id: src.id, title: src.title })
+    }
+    backlinks.value = out
+  }
+
+  watch([currentArticleId, linkVersion], refreshBacklinks)
+
+  /** 启动时后台重建全量双链索引（不阻塞界面） */
+  async function rebuildAllLinks() {
+    for (const a of articles.value) {
+      if (a.isDeleted !== 0 || a.encrypted === 1 || isEncryptedPayload(a.content)) continue
+      const changed = await syncLinksForArticle(a.id, a.content)
+      if (changed) linkVersion.value++
+    }
+  }
+
+  /** 按标题打开笔记；不存在则以该标题新建（Obsidian 风格） */
+  const openByTitle = async (title: string) => {
+    const found = articles.value.find((a) => a.isDeleted === 0 && a.title === title)
+    if (found) {
+      selectArticle(found.id)
+      return
+    }
+    await createArticle()
+    await updateCurrentArticle({ title })
+  }
+
+  // ── 加密操作 ──
+
+  /** 给当前笔记设置密码并加密（内容仍在本次会话保持解锁可编辑） */
+  const encryptCurrent = async (password: string): Promise<boolean> => {
+    const art = currentArticle.value
+    if (!art || art.encrypted === 1) return false
+    const cipher = await encryptText(password, currentContent.value)
+
+    await articleDB.updateArticle(art.id, { content: cipher, encrypted: 1 })
+    const idx = articles.value.findIndex((a) => a.id === art.id)
+    if (idx !== -1) {
+      articles.value[idx] = { ...articles.value[idx], content: cipher, encrypted: 1, updatedAt: Date.now() }
+      searchUpdate({ ...articles.value[idx] })
+    }
+    // FS 模式：密文同步写回文件
+    if (isFsMode.value && art.filePath) {
+      const handle = fileHandles.get(art.id)
+      if (handle) await fsService.writeFile(handle, cipher)
+    }
+    // 加密前产生的明文快照一并清除
+    await deleteAllSnapshots(art.id)
+
+    passwordCache.set(art.id, password)
+    if (!unlockedIds.value.includes(art.id)) unlockedIds.value.push(art.id)
+    return true
+  }
+
+  /** 解锁当前笔记 */
+  const unlockCurrent = async (password: string): Promise<boolean> => {
+    const art = currentArticle.value
+    if (!art) return false
+    try {
+      const plain = await decryptText(password, art.content)
+      unlockedIds.value.push(art.id)
+      passwordCache.set(art.id, password)
+      currentContent.value = plain
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** 重新锁定（清除内存明文与密码缓存） */
+  const lockCurrent = () => {
+    const id = currentArticleId.value
+    if (!id) return
+    unlockedIds.value = unlockedIds.value.filter((x) => x !== id)
+    passwordCache.delete(id)
+    currentContent.value = ''
+  }
+
+  // ── DB 模式导入 ──
+  /** 未打开工作目录时，把外部 .md 文本导入 IndexedDB */
+  const importArticleFromDb = async (fileName: string, content: string) => {
+    const base = fileName.replace(/\.md$/i, '')
+    const existingNames = new Set(articles.value.map((a) => a.title))
+    let title = base
+    let counter = 1
+    while (existingNames.has(title)) {
+      title = `${base} (${counter++})`
+    }
+
+    const id = await articleDB.createArticle({
+      title,
+      content,
+      folderId: null,
+      tags: [],
+      filePath: null,
+    })
+    await loadArticles()
+    const art = articles.value.find((a) => a.id === id)
+    if (art) searchUpdate(art)
+    const changed = await syncLinksForArticle(id, content)
+    if (changed) linkVersion.value++
+    currentArticleId.value = id
+    currentContent.value = content
+    return id
+  }
+
   return {
     articles,
     currentArticleId,
@@ -408,10 +586,21 @@ export const useArticleStore = defineStore('article', () => {
     openFolder,
     closeWorkspace,
     importMarkdownFile,
+    importArticleFromDb,
     loadArticles,
     createArticle,
     updateCurrentArticle,
     selectArticle,
     deleteCurrentArticle,
+    // 加密
+    currentEncrypted,
+    currentLocked,
+    encryptCurrent,
+    unlockCurrent,
+    lockCurrent,
+    // 双链
+    linkVersion,
+    backlinks,
+    openByTitle,
   }
 })

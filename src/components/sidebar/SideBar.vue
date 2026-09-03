@@ -16,8 +16,8 @@
       :current-id="articleStore.currentArticleId"
       @select="articleStore.selectArticle"
       @create="articleStore.createArticle"
-      @import="articleStore.importMarkdownFile"
-      :show-import="articleStore.isFsMode"
+      @import="onImport"
+      :show-import="true"
     />
 
     <!-- 回收站 -->
@@ -45,11 +45,28 @@
       <div v-else class="trash-empty">回收站是空的</div>
     </div>
 
+    <!-- 导出全部 -->
+    <button class="export-all" title="把全部笔记打包导出为 zip" @click="onExportAll" :disabled="exporting">
+      <n-icon size="14"><archive-outline /></n-icon>
+      {{ exporting ? '打包中…' : '导出全部 (.zip)' }}
+    </button>
+
     <div class="footer">本地优先 · 数据保存在你的设备上</div>
+
+    <!-- DB 模式导入用隐藏文件选择器 -->
+    <input
+      ref="fileInputRef"
+      type="file"
+      accept=".md,text/markdown"
+      multiple
+      style="display: none"
+      @change="onFilesChosen"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { NIcon } from 'naive-ui'
 import {
   FolderOutline,
@@ -59,11 +76,44 @@ import {
   ChevronForwardOutline,
   ArrowUndoOutline,
   CloseOutline,
+  ArchiveOutline,
 } from '@vicons/ionicons5'
 import FileTree from './FileTree.vue'
 import { useArticleStore } from '@/stores/article'
+import { exportAllZip } from '@/services/export'
 
 const articleStore = useArticleStore()
+
+const fileInputRef = ref<HTMLInputElement>()
+const exporting = ref(false)
+
+async function onImport() {
+  if (articleStore.isFsMode) {
+    await articleStore.importMarkdownFile()
+    return
+  }
+  fileInputRef.value?.click()
+}
+
+async function onFilesChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  for (const f of files) {
+    const content = await f.text()
+    await articleStore.importArticleFromDb(f.name, content)
+  }
+  input.value = ''
+}
+
+async function onExportAll() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    await exportAllZip()
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <style scoped lang="scss">
@@ -226,6 +276,34 @@ const articleStore = useArticleStore()
   text-align: center;
   color: var(--text-tertiary);
   font-size: 12px;
+}
+
+// ── 导出全部 ──
+.export-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 2px;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
 }
 
 .footer {

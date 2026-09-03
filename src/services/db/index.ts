@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie'
-import type { Article, Folder, Link, Snapshot } from '@/types/article'
+import type { Article, Folder, Link, Snapshot, Asset } from '@/types/article'
 
 export interface WorkspaceRecord {
   id: string // 'default'
@@ -13,6 +13,7 @@ export class MoyuDatabase extends Dexie {
   links!: Table<Link>
   snapshots!: Table<Snapshot>
   workspaces!: Table<WorkspaceRecord>
+  assets!: Table<Asset>
 
   constructor() {
     super('MoyuNotesDB')
@@ -27,6 +28,9 @@ export class MoyuDatabase extends Dexie {
     })
     this.version(3).stores({
       snapshots: 'id, articleId, createdAt',
+    })
+    this.version(4).stores({
+      assets: 'id, articleId',
     })
   }
 }

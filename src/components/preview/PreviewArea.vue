@@ -1,5 +1,5 @@
 <template>
-  <div class="preview-wrapper">
+  <div class="preview-wrapper" @click="onPreviewClick">
     <!-- 有内容 → 实时渲染 -->
     <MarkdownPreview
       v-if="articleStore.currentArticle && articleStore.currentContent.trim() !== ''"
@@ -25,6 +25,14 @@ import MarkdownPreview from '@/components/editor/MarkdownPreview.vue'
 import { useArticleStore } from '@/stores/article'
 
 const articleStore = useArticleStore()
+
+/** 双链点击：[[标题]] → 打开对应笔记（不存在则新建） */
+function onPreviewClick(e: MouseEvent) {
+  const el = (e.target as HTMLElement).closest('.wiki-link')
+  if (!el) return
+  const title = el.getAttribute('data-wiki')
+  if (title) articleStore.openByTitle(title)
+}
 </script>
 
 <style scoped lang="scss">

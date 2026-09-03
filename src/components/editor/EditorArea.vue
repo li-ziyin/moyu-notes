@@ -9,6 +9,7 @@
         :class="{ active: articleStore.currentArticleId === tabId }"
         @click="articleStore.openTab(tabId)"
       >
+        <n-icon v-if="isTabEncrypted(tabId)" size="11" class="tab-lock"><lock-closed-outline /></n-icon>
         <span class="tab-title">{{ getTabTitle(tabId) }}</span>
         <button class="tab-close" @click.stop="articleStore.closeTab(tabId)">
           <n-icon size="12"><close-outline /></n-icon>
@@ -18,8 +19,12 @@
 
     <!-- 标题行 -->
     <div class="title-row">
+      <n-icon v-if="articleStore.currentEncrypted" size="14" class="title-lock" title="加密笔记">
+        <lock-closed-outline />
+      </n-icon>
       <input
         v-if="articleStore.currentArticle"
+        ref="titleInputRef"
         v-model="title"
         class="doc-title-input"
         placeholder="未命名"
@@ -29,8 +34,23 @@
       <span v-else class="doc-title-placeholder">墨语笔记</span>
 
       <div class="title-actions" v-if="articleStore.currentArticle" @click.stop>
-        <!-- 快照历史 -->
-        <div class="snap-wrap">
+        <!-- 导出 -->
+        <button class="icon-btn" title="导出为 .md 文件" @click="exportCurrent">
+          <n-icon size="16"><download-outline /></n-icon>
+        </button>
+        <!-- 加密 / 解锁后重新锁定 -->
+        <button
+          class="icon-btn"
+          :title="articleStore.currentEncrypted ? '重新锁定笔记' : '加密此笔记'"
+          @click="onLockClick"
+        >
+          <n-icon size="16">
+            <lock-open-outline v-if="articleStore.currentEncrypted" />
+            <lock-closed-outline v-else />
+          </n-icon>
+        </button>
+        <!-- 快照历史（加密笔记不可用） -->
+        <div class="snap-wrap" v-if="!articleStore.currentEncrypted">
           <button class="icon-btn" :class="{ active: showSnapshots }" title="快照历史（每 5 分钟自动保存）" @click="openSnapshots">
             <n-icon size="16"><time-outline /></n-icon>
           </button>
@@ -52,15 +72,43 @@
       </div>
     </div>
 
-    <!-- 编辑器 / 空状态 -->
+    <!-- 编辑器 / 锁屏 / 空状态 -->
     <div class="editor-body">
-      <MonacoEditor
-        v-if="articleStore.currentArticle"
-        v-model="content"
-        :theme="theme"
-        :article-key="articleStore.currentArticleId"
-        @change="onContentChange"
-      />
+      <template v-if="articleStore.currentArticle">
+        <!-- 解锁后的编辑器 -->
+        <MonacoEditor
+          v-if="!articleStore.currentLocked"
+          ref="monacoRef"
+          v-model="content"
+          :theme="theme"
+          :article-key="articleStore.currentArticleId"
+          @change="onContentChange"
+          @image-paste="onImagePaste"
+        />
+        <!-- 加密锁屏 -->
+        <div v-else class="lock-screen">
+          <div class="lock-mark">
+            <n-icon size="26"><lock-closed-outline /></n-icon>
+          </div>
+          <div class="lock-title">此笔记已加密</div>
+          <p class="lock-sub">输入密码解锁查看与编辑，数据以 AES-GCM 加密存储</p>
+          <form class="lock-form" @submit.prevent="doUnlock">
+            <input
+              v-model="unlockPw"
+              type="password"
+              class="lock-input"
+              placeholder="输入密码"
+              autofocus
+            />
+            <button type="submit" class="lock-btn">
+              <n-icon size="15"><lock-open-outline /></n-icon>
+              解锁
+            </button>
+          </form>
+          <div v-if="unlockError" class="lock-error">{{ unlockError }}</div>
+        </div>
+      </template>
+
       <div v-else class="editor-empty">
         <div class="empty-mark">墨</div>
         <h2 class="empty-title">{{ articleStore.articles.length > 0 ? '选择一篇笔记开始写作' : '开始你的第一篇笔记' }}</h2>
@@ -75,9 +123,12 @@
             打开本地文件夹
           </button>
         </div>
-        <p class="empty-hint">快捷键：Ctrl+P 搜索 · Ctrl+B 加粗 · Ctrl+K 插入链接</p>
+        <p class="empty-hint">快捷键：Ctrl+P 搜索 · Ctrl+B 加粗 · Ctrl+K 插入链接 · [[ 双链笔记</p>
       </div>
     </div>
+
+    <!-- 加密设置密码弹窗 -->
+    <PasswordDialog v-model="showPwDialog" title="加密此笔记" mode="set" @confirm="doEncrypt" />
   </div>
 </template>
 
@@ -90,13 +141,19 @@ import {
   TrashOutline,
   AddOutline,
   FolderOutline,
+  LockClosedOutline,
+  LockOpenOutline,
+  DownloadOutline,
 } from '@vicons/ionicons5'
 import MonacoEditor from './MonacoEditor.vue'
+import PasswordDialog from '@/components/common/PasswordDialog.vue'
 import { useSettingStore } from '@/stores/setting'
 import { useArticleStore } from '@/stores/article'
 import { storeToRefs } from 'pinia'
 import { useDebounce } from '@/composables/useDebounce'
 import { getSnapshots } from '@/services/snapshot'
+import { saveAsset } from '@/services/assets'
+import { exportArticle } from '@/services/export'
 import type { Snapshot } from '@/types/article'
 
 const settingStore = useSettingStore()
@@ -105,16 +162,18 @@ const { theme } = storeToRefs(settingStore)
 
 const title = ref('')
 const content = ref('')
-const saveStatus = ref<'saved' | 'saving'>('saved')
+const monacoRef = ref<InstanceType<typeof MonacoEditor>>()
+const titleInputRef = ref<HTMLInputElement>()
+const unlockPw = ref('')
+const unlockError = ref('')
 
-// 内容同步：只在 currentContent 与本地不一致时写入（文章切换 / 快照恢复 / 异步文件读取）
+// 内容同步：只在 currentContent 与本地不一致时写入（文章切换 / 快照恢复 / 解锁）
 // 打字过程中两者始终相等，因此不会触发 Monaco 的 setValue，杜绝光标跳动
 watch(
   () => articleStore.currentContent,
   (val) => {
     if (val !== content.value) {
       content.value = val
-      saveStatus.value = 'saved'
     }
   }
 )
@@ -123,18 +182,28 @@ watch(
   () => articleStore.currentArticleId,
   () => {
     title.value = articleStore.currentArticle?.title ?? ''
+    unlockPw.value = ''
+    unlockError.value = ''
   },
   { immediate: true }
+)
+
+// 标题在外部被修改（如双链自动建名、FS 重命名）时同步输入框；正在输入时不覆盖
+watch(
+  () => articleStore.currentArticle?.title,
+  (t) => {
+    if (document.activeElement !== titleInputRef.value) {
+      title.value = t ?? ''
+    }
+  }
 )
 
 const debouncedSave = useDebounce(async (newContent: string) => {
   if (!articleStore.currentArticle) return
   await articleStore.updateCurrentArticle({ content: newContent })
-  saveStatus.value = 'saved'
 }, 800)
 
 const onContentChange = (newContent: string) => {
-  saveStatus.value = 'saving'
   articleStore.currentContent = newContent
   debouncedSave(newContent)
 }
@@ -149,6 +218,57 @@ function deleteArticle() {
   if (confirm(`确定删除「${articleStore.currentArticle.title}」吗？\n可在回收站中恢复。`)) {
     articleStore.deleteCurrentArticle()
   }
+}
+
+// ── 图片粘贴 ──
+async function onImagePaste(file: File) {
+  if (!articleStore.currentArticle) return
+  const id = await saveAsset(file, articleStore.currentArticle.id)
+  const name = file.name.replace(/\.[a-z0-9]+$/i, '') || '图片'
+  monacoRef.value?.insertText(`![${name}](asset://${id})`)
+}
+
+// ── 加密 / 解锁 ──
+const showPwDialog = ref(false)
+
+function onLockClick() {
+  if (articleStore.currentEncrypted) {
+    // 已加密且解锁中 → 重新锁定
+    articleStore.lockCurrent()
+  } else {
+    showPwDialog.value = true
+  }
+}
+
+async function doEncrypt(password: string) {
+  const ok = await articleStore.encryptCurrent(password)
+  if (!ok) alert('加密失败')
+}
+
+async function doUnlock() {
+  unlockError.value = ''
+  if (!unlockPw.value) return
+  const ok = await articleStore.unlockCurrent(unlockPw.value)
+  if (!ok) {
+    unlockError.value = '密码错误，请重试'
+    unlockPw.value = ''
+  }
+}
+
+function isTabEncrypted(id: string): boolean {
+  const art = articleStore.articles.find((a) => a.id === id)
+  return !!art && art.encrypted === 1
+}
+
+// ── 导出 ──
+function exportCurrent() {
+  const art = articleStore.currentArticle
+  if (!art) return
+  if (articleStore.currentLocked) {
+    alert('笔记已加密，请先解锁后再导出')
+    return
+  }
+  exportArticle(art, content.value)
 }
 
 // ── 快照历史 ──
@@ -223,6 +343,10 @@ function getTabTitle(id: string): string {
   }
 }
 
+.tab-lock {
+  color: var(--warning-color);
+}
+
 .tab-title {
   max-width: 140px;
   overflow: hidden;
@@ -259,6 +383,11 @@ function getTabTitle(id: string): string {
   align-items: center;
   gap: 10px;
   padding: 14px 20px 10px;
+  flex-shrink: 0;
+}
+
+.title-lock {
+  color: var(--warning-color);
   flex-shrink: 0;
 }
 
@@ -396,6 +525,90 @@ function getTabTitle(id: string): string {
   font-size: 12px;
   color: var(--text-tertiary);
   line-height: 1.8;
+}
+
+// ── 加密锁屏 ──
+.lock-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 40px;
+}
+
+.lock-mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: rgba(210, 153, 34, 0.12);
+  color: var(--warning-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.lock-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.lock-sub {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-bottom: 24px;
+}
+
+.lock-form {
+  display: flex;
+  gap: 8px;
+}
+
+.lock-input {
+  width: 220px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+
+  &:focus {
+    border-color: var(--accent-color);
+  }
+
+  &::placeholder {
+    color: var(--text-tertiary);
+  }
+}
+
+.lock-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent-color);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--accent-hover);
+  }
+}
+
+.lock-error {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--danger-color);
 }
 
 // ── 编辑器主体：约束到舒适阅读宽度，沉浸模式下居中成窄栏 ──

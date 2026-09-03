@@ -23,10 +23,13 @@
         <button
           class="icon-btn"
           :class="{ active: ui.outlineVisible }"
-          title="大纲"
-          @click="onToggleOutline"
+          title="大纲 / 反向链接"
+          @click="ui.toggleOutline"
         >
           <n-icon size="17"><list-outline /></n-icon>
+        </button>
+        <button class="icon-btn" title="知识图谱" @click="graphVisible = true">
+          <n-icon size="17"><git-network-outline /></n-icon>
         </button>
         <button
           class="icon-btn"
@@ -65,31 +68,74 @@
         <PreviewArea />
       </aside>
 
-      <!-- ── 大纲抽屉（悬浮于工作区右侧） ── -->
+      <!-- ── 大纲 / 反链抽屉（悬浮于工作区右侧） ── -->
       <transition name="drawer">
         <div v-if="ui.outlineVisible" class="outline-drawer">
           <div class="outline-header">
-            <span class="outline-title">大纲</span>
-            <button class="icon-btn sm" title="关闭大纲" @click="ui.toggleOutline">
+            <div class="drawer-tabs">
+              <button
+                class="drawer-tab"
+                :class="{ active: drawerTab === 'outline' }"
+                @click="drawerTab = 'outline'"
+              >
+                大纲
+              </button>
+              <button
+                class="drawer-tab"
+                :class="{ active: drawerTab === 'backlinks' }"
+                @click="drawerTab = 'backlinks'"
+              >
+                反向链接
+                <span v-if="articleStore.backlinks.length > 0" class="tab-badge">
+                  {{ articleStore.backlinks.length }}
+                </span>
+              </button>
+            </div>
+            <button class="icon-btn sm" title="关闭" @click="ui.toggleOutline">
               <n-icon size="14"><close-outline /></n-icon>
             </button>
           </div>
-          <div v-if="outlineItems.length > 0" class="outline-list">
-            <div
-              v-for="(item, i) in outlineItems"
-              :key="i"
-              class="outline-item"
-              :class="{ 'is-h1': item.level === 1, 'is-h2': item.level === 2 }"
-              :style="{ paddingLeft: (item.level - 1) * 14 + 12 + 'px' }"
-              @click="scrollToHeading(item)"
-            >
-              {{ item.text }}
+
+          <!-- 大纲 -->
+          <div v-if="drawerTab === 'outline'" class="outline-list">
+            <template v-if="outlineItems.length > 0">
+              <div
+                v-for="(item, i) in outlineItems"
+                :key="i"
+                class="outline-item"
+                :class="{ 'is-h1': item.level === 1, 'is-h2': item.level === 2 }"
+                :style="{ paddingLeft: (item.level - 1) * 14 + 12 + 'px' }"
+                @click="scrollToHeading(item)"
+              >
+                {{ item.text }}
+              </div>
+            </template>
+            <div v-else class="outline-empty">暂无标题</div>
+          </div>
+
+          <!-- 反向链接 -->
+          <div v-else class="outline-list">
+            <template v-if="articleStore.backlinks.length > 0">
+              <div
+                v-for="b in articleStore.backlinks"
+                :key="b.id"
+                class="outline-item"
+                @click="articleStore.selectArticle(b.id)"
+              >
+                {{ b.title || '未命名' }}
+              </div>
+            </template>
+            <div v-else class="outline-empty">
+              暂无反向链接<br />
+              <span class="empty-sub">在其他笔记中用 [[本文标题]] 引用，就会出现在这里</span>
             </div>
           </div>
-          <div v-else class="outline-empty">暂无标题</div>
         </div>
       </transition>
     </div>
+
+    <!-- ── 知识图谱 ── -->
+    <GraphPanel v-model:visible="graphVisible" @open="onGraphOpen" />
 
     <SearchPanel ref="searchPanelRef" @select="onSearchSelect" />
   </div>
@@ -106,11 +152,13 @@ import {
   MoonOutline,
   SunnyOutline,
   CloseOutline,
+  GitNetworkOutline,
 } from '@vicons/ionicons5'
 import SideBar from '@/components/sidebar/SideBar.vue'
 import EditorArea from '@/components/editor/EditorArea.vue'
 import PreviewArea from '@/components/preview/PreviewArea.vue'
 import SearchPanel from '@/components/search/SearchPanel.vue'
+import GraphPanel from '@/components/graph/GraphPanel.vue'
 import { useArticleStore } from '@/stores/article'
 import { useSettingStore } from '@/stores/setting'
 import { storeToRefs } from 'pinia'
@@ -124,6 +172,8 @@ const { toggleTheme } = ui
 
 const searchPanelRef = ref<InstanceType<typeof SearchPanel>>()
 const previewColRef = ref<HTMLElement>()
+const graphVisible = ref(false)
+const drawerTab = ref<'outline' | 'backlinks'>('outline')
 
 const outlineItems = computed<OutlineItem[]>(() => parseOutline(articleStore.currentContent))
 
@@ -132,6 +182,10 @@ function openSearch() {
 }
 
 function onSearchSelect(id: string) {
+  articleStore.selectArticle(id)
+}
+
+function onGraphOpen(id: string) {
   articleStore.selectArticle(id)
 }
 
@@ -147,10 +201,6 @@ async function scrollToHeading(item: OutlineItem) {
       return
     }
   }
-}
-
-function onToggleOutline() {
-  ui.toggleOutline()
 }
 
 // Ctrl+P 打开搜索（全局监听）
@@ -331,16 +381,51 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 12px 8px 16px;
+  padding: 10px 12px 8px 12px;
   flex-shrink: 0;
 }
 
-.outline-title {
-  font-size: 11px;
-  font-weight: 700;
+.drawer-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.drawer-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
   color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+  }
+}
+
+.tab-badge {
+  font-size: 10px;
+  background: var(--accent-color);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 5px;
+  line-height: 15px;
+  font-weight: 600;
 }
 
 .outline-list {
@@ -380,6 +465,12 @@ onBeforeUnmount(() => {
   text-align: center;
   color: var(--text-tertiary);
   font-size: 12px;
+  line-height: 1.9;
+
+  .empty-sub {
+    font-size: 11px;
+    opacity: 0.8;
+  }
 }
 
 .drawer-enter-active,
