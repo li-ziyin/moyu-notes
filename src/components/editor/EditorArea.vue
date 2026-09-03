@@ -398,11 +398,18 @@ function getTabTitle(id: string): string {
   line-height: 1.8;
 }
 
-// ── 编辑器主体 ──
+// ── 编辑器主体：约束到舒适阅读宽度，沉浸模式下居中成窄栏 ──
 .editor-body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  justify-content: center;
+
+  > * {
+    max-width: 860px;
+    width: 100%;
+  }
 }
 
 // ── 空状态欢迎页 ──

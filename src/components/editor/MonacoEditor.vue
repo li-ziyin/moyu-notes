@@ -114,10 +114,24 @@ onMounted(async () => {
 
   monacoInstance = await loader.init()
 
+  // 定义与界面调色板一致的专属主题，消除编辑器与预览区的背景色差
+  monacoInstance.editor.defineTheme('moyu-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [],
+    colors: { 'editor.background': '#ffffff' },
+  })
+  monacoInstance.editor.defineTheme('moyu-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: { 'editor.background': '#12151c' },
+  })
+
   editorInstance = monacoInstance.editor.create(editorContainer.value!, {
     value: props.modelValue,
     language: 'markdown',
-    theme: props.theme === 'dark' ? 'vs-dark' : 'vs',
+    theme: props.theme === 'dark' ? 'moyu-dark' : 'moyu-light',
     automaticLayout: true,
     // ── 写作模式：隐藏代码编辑器的视觉噪音 ──
     minimap: { enabled: false },
@@ -166,7 +180,7 @@ watch(
   () => props.theme,
   (newTheme) => {
     if (monacoInstance) {
-      monacoInstance.editor.setTheme(newTheme === 'dark' ? 'vs-dark' : 'vs')
+      monacoInstance.editor.setTheme(newTheme === 'dark' ? 'moyu-dark' : 'moyu-light')
     }
   }
 )
@@ -213,5 +227,10 @@ onBeforeUnmount(() => {
 .monaco-editor-container {
   width: 100%;
   height: 100%;
+}
+
+/* 去掉 Monaco 自带的编辑器焦点轮廓线，写作界面保持干净 */
+.monaco-editor-container :deep(.monaco-editor) {
+  outline: none;
 }
 </style>

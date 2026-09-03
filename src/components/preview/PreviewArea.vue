@@ -1,9 +1,16 @@
 <template>
   <div class="preview-wrapper">
+    <!-- 有内容 → 实时渲染 -->
     <MarkdownPreview
-      v-if="articleStore.currentArticle"
+      v-if="articleStore.currentArticle && articleStore.currentContent.trim() !== ''"
       :content="articleStore.currentContent"
     />
+    <!-- 有笔记但内容为空 -->
+    <div v-else-if="articleStore.currentArticle" class="preview-empty">
+      <n-icon size="36" class="empty-icon"><reader-outline /></n-icon>
+      <p>开始输入，预览将在这里实时呈现</p>
+    </div>
+    <!-- 未打开笔记 -->
     <div v-else class="preview-empty">
       <n-icon size="36" class="empty-icon"><reader-outline /></n-icon>
       <p>打开笔记后这里会显示实时预览</p>
