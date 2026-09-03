@@ -1,0 +1,38 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+// ── 隐藏滚动条，保留滚动功能 ──
+* {
+  scrollbar-width: none;          // Firefox
+  &::-webkit-scrollbar {
+    display: none;               // Chrome / Safari / Edge
+  }
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+button {
+  font-family: inherit;
+  user-select: none;
+}
+
+input {
+  font-family: inherit;
+}
