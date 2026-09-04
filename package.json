@@ -14,6 +14,7 @@
     "@monaco-editor/loader": "^1.7.0",
     "@vicons/ionicons5": "^0.13.0",
     "dexie": "^4.4.4",
+    "dompurify": "^3.4.14",
     "flexsearch": "^0.8.212",
     "jszip": "^3.10.1",
     "markdown-it": "^14.3.0",

@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import { ensureAssetUrls, peekAssetUrl } from '@/services/assets'
 
 const props = defineProps<{
@@ -19,6 +20,26 @@ const md = new MarkdownIt({
   typographer: true,
   breaks: true, // 单个回车也变成 <br>
 })
+
+// ── XSS 防护：笔记可能来自导入/同步等不可信来源 ──
+// 渲染结果必须经 DOMPurify 消毒：剥离 <script>、on* 事件、javascript: 协议等
+// ADD_ATTR 保留 target（外链新窗口打开）
+function sanitize(dirty: string): string {
+  return DOMPurify.sanitize(dirty, { ADD_ATTR: ['target'] })
+}
+
+// ── 外部链接新窗口打开，防反向标签劫持 ──
+const defaultLinkOpen =
+  md.renderer.rules.link_open ||
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
+  const href = tokens[idx].attrGet('href') ?? ''
+  if (/^https?:\/\//i.test(href)) {
+    tokens[idx].attrSet('target', '_blank')
+    tokens[idx].attrSet('rel', 'noopener noreferrer')
+  }
+  return defaultLinkOpen(tokens, idx, options, _env, self)
+}
 
 // ── 双链 [[笔记标题]] 内联规则 ──
 function wikiInline(state: any, silent: boolean): boolean {
@@ -62,9 +83,9 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
 watch(
   () => props.content,
   async (newContent) => {
-    // 先确保图片资产已生成 blob URL，再渲染
+    // 先确保图片资产已生成 blob URL，再渲染并消毒
     await ensureAssetUrls(newContent || '')
-    html.value = md.render(newContent || '')
+    html.value = sanitize(md.render(newContent || ''))
   },
   { immediate: true }
 )
