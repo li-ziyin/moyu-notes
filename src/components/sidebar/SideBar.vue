@@ -51,7 +51,15 @@
       {{ exporting ? '打包中…' : '导出全部 (.zip)' }}
     </button>
 
+    <!-- WebDAV 同步 -->
+    <button class="export-all" title="通过 WebDAV 在多台设备间同步笔记" @click="showSync = true">
+      <n-icon size="14"><sync-outline /></n-icon>
+      WebDAV 同步
+    </button>
+
     <div class="footer">本地优先 · 数据保存在你的设备上</div>
+
+    <SyncPanel v-model="showSync" />
 
     <!-- DB 模式导入用隐藏文件选择器 -->
     <input
@@ -77,8 +85,10 @@ import {
   ArrowUndoOutline,
   CloseOutline,
   ArchiveOutline,
+  SyncOutline,
 } from '@vicons/ionicons5'
 import FileTree from './FileTree.vue'
+import SyncPanel from '@/components/sync/SyncPanel.vue'
 import { useArticleStore } from '@/stores/article'
 import { exportAllZip } from '@/services/export'
 
@@ -86,6 +96,7 @@ const articleStore = useArticleStore()
 
 const fileInputRef = ref<HTMLInputElement>()
 const exporting = ref(false)
+const showSync = ref(false)
 
 async function onImport() {
   if (articleStore.isFsMode) {

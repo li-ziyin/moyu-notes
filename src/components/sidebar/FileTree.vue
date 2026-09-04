@@ -16,18 +16,23 @@
         </button>
       </div>
     </div>
-    <div class="tree-list">
-      <div
-        v-for="article in articles"
-        :key="article.id"
-        class="tree-item"
-        :class="{ active: currentId === article.id }"
-        @click="onSelect(article.id)"
-      >
-        <n-icon size="14" class="item-icon">
-          <document-text-outline />
-        </n-icon>
-        <span class="item-title">{{ article.title || '未命名' }}</span>
+    <div ref="scrollRef" class="tree-scroll">
+      <div class="tree-spacer" :style="{ height: totalHeight + 'px' }">
+        <div class="tree-window" :style="{ transform: `translateY(${offsetY}px)` }">
+          <div
+            v-for="article in visibleItems"
+            :key="article.id"
+            class="tree-item"
+            :class="{ active: currentId === article.id }"
+            :style="{ height: ITEM_HEIGHT + 'px' }"
+            @click="onSelect(article.id)"
+          >
+            <n-icon size="14" class="item-icon">
+              <document-text-outline />
+            </n-icon>
+            <span class="item-title">{{ article.title || '未命名' }}</span>
+          </div>
+        </div>
       </div>
       <div v-if="articles.length === 0" class="tree-empty">
         {{ showImport ? '暂无笔记，点击 + 新建 或导入' : '暂无笔记，点击 + 新建' }}
@@ -37,11 +42,16 @@
 </template>
 
 <script setup lang="ts">
+import { ref, toRef } from 'vue'
 import { NIcon } from 'naive-ui'
 import { AddOutline, DocumentTextOutline, CloudUploadOutline } from '@vicons/ionicons5'
 import type { Article } from '@/types/article'
+import { useVirtualList } from '@/composables/useVirtualList'
 
-withDefaults(defineProps<{
+/** 固定行高：虚拟滚动依赖精确高度 */
+const ITEM_HEIGHT = 34
+
+const props = withDefaults(defineProps<{
   articles: Article[]
   currentId: string | null
   showImport?: boolean
@@ -55,6 +65,13 @@ const emit = defineEmits<{
   (e: 'import'): void
 }>()
 
+const scrollRef = ref<HTMLElement | null>(null)
+const { visibleItems, offsetY, totalHeight } = useVirtualList(
+  scrollRef,
+  toRef(props, 'articles'),
+  ITEM_HEIGHT
+)
+
 const onSelect = (id: string) => emit('select', id)
 const onCreate = () => emit('create')
 const onImport = () => emit('import')
@@ -63,7 +80,9 @@ const onImport = () => emit('import')
 <style scoped lang="scss">
 .file-tree {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 0 6px;
 }
 
@@ -73,6 +92,7 @@ const onImport = () => emit('import')
   gap: 6px;
   padding: 6px 8px;
   margin-bottom: 2px;
+  flex-shrink: 0;
 }
 
 .tree-title {
@@ -115,17 +135,30 @@ const onImport = () => emit('import')
   }
 }
 
-.tree-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+.tree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative;
+}
+
+.tree-spacer {
+  position: relative;
+}
+
+.tree-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  will-change: transform;
 }
 
 .tree-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 0 10px;
   border-radius: var(--radius-md);
   cursor: pointer;
   color: var(--text-secondary);

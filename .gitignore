@@ -12,6 +12,9 @@ dist-ssr/
 !.vscode/extensions.json
 .idea/
 
+# 本地 WebDAV 测试服务器数据
+.webdav-root/
+
 # 系统文件
 .DS_Store
 Thumbs.db

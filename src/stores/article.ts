@@ -8,6 +8,7 @@ import { updateDoc as searchUpdate, removeDoc as searchRemove } from '@/services
 import { createSnapshot, deleteAllSnapshots } from '@/services/snapshot'
 import { encryptText, decryptText, isEncryptedPayload } from '@/services/crypto'
 import { syncLinksForArticle, getBacklinks, resolveLinksForTitle } from '@/services/links'
+import { buildIndex } from '@/services/search'
 
 export const useArticleStore = defineStore('article', () => {
   const articles = ref<Article[]>([])
@@ -565,6 +566,20 @@ export const useArticleStore = defineStore('article', () => {
     return id
   }
 
+  /** WebDAV 等外部同步后：重载数据并重建搜索索引与双链 */
+  const refreshAfterExternalSync = async () => {
+    await loadArticles()
+    buildIndex(articles.value)
+    rebuildAllLinks()
+    // 当前打开的文章内容可能已被远端更新
+    const art = currentArticle.value
+    if (art && !currentLocked.value) {
+      if (art.encrypted !== 1 && !isEncryptedPayload(art.content)) {
+        currentContent.value = art.content
+      }
+    }
+  }
+
   return {
     articles,
     currentArticleId,
@@ -602,5 +617,7 @@ export const useArticleStore = defineStore('article', () => {
     linkVersion,
     backlinks,
     openByTitle,
+    // 外部同步
+    refreshAfterExternalSync,
   }
 })
