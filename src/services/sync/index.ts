@@ -9,6 +9,8 @@ import { davEnsureDir, davPut, davGet, davDelete, davList } from './webdav'
 import type { WebDAVConfig } from './webdav'
 import { db } from '@/services/db'
 import * as articleDB from '@/services/db/article'
+import { createSnapshot } from '@/services/snapshot'
+import { isEncryptedPayload } from '@/services/crypto'
 import type { Article } from '@/types/article'
 
 // 供 UI 层统一从本模块导入
@@ -63,15 +65,21 @@ export async function syncWithWebDAV(
       await davPut(cfg, fileName, art.content)
       report.uploaded++
     } else if (remote.lastModified > art.updatedAt) {
-      // 远端较新 → 下载合并
+      // 远端较新
+      // 加密笔记的密文不可在应用外解密，拒绝远端明文覆盖（需在应用内手动处理）
+      if (art.encrypted === 1 || isEncryptedPayload(art.content)) {
+        report.conflicts++
+        continue
+      }
       const remoteContent = await davGet(cfg, fileName)
       if (remoteContent !== null && remoteContent !== art.content) {
+        // 覆盖前把本地当前内容存为快照，本地未同步的修改永远可找回
+        await createSnapshot(art.id, art.title, art.content, '同步覆盖前备份')
         await articleDB.updateArticle(art.id, {
           content: remoteContent,
           updatedAt: remote.lastModified,
         })
         report.downloaded++
-        if (art.encrypted === 1) report.conflicts++ // 加密笔记被明文覆盖，提示人工检查
       }
     }
   }
@@ -93,9 +101,10 @@ export async function syncWithWebDAV(
       filePath: null,
     })
     // 让新笔记的 updatedAt 与远端一致，避免下次回传
+    // （直接走 Dexie 原始 update，绕开会强制刷新时间戳的 articleDB.updateArticle）
     const created = await db.articles.where('title').equals(title).first()
     if (created) {
-      await articleDB.updateArticle(created.id, { updatedAt: remote.lastModified })
+      await db.articles.update(created.id, { updatedAt: remote.lastModified })
     }
     report.created++
   }

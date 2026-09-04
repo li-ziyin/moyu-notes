@@ -8,3 +8,6 @@ const app = createApp(App)
 app.use(pinia)
 app.use(naive)
 app.mount('#app')
+
+// 申请持久化存储：避免浏览器在磁盘紧张时未经确认驱逐 IndexedDB 数据
+navigator.storage?.persist?.().catch(() => {})

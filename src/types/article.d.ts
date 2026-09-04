@@ -36,6 +36,8 @@ export interface Snapshot {
   title: string
   content: string
   createdAt: number
+  /** 自动备份来源说明（如"同步覆盖前备份"），手动快照无此字段 */
+  label?: string
 }
 
 /** 图片资产（粘贴的图片二进制，正文以 asset://<id> 引用） */

@@ -58,7 +58,10 @@
             <div class="snap-header">快照历史</div>
             <div v-if="snapshots.length > 0" class="snap-list">
               <div v-for="snap in snapshots" :key="snap.id" class="snap-item" @click="restoreSnapshot(snap)">
-                <span class="snap-time">{{ fmtTime(snap.createdAt) }}</span>
+                <span class="snap-time">
+                  {{ fmtTime(snap.createdAt) }}
+                  <span v-if="snap.label" class="snap-label">{{ snap.label }}</span>
+                </span>
                 <span class="snap-preview">{{ snap.content.replace(/\s+/g, ' ').slice(0, 40) }}</span>
               </div>
             </div>
@@ -151,7 +154,7 @@ import { useSettingStore } from '@/stores/setting'
 import { useArticleStore } from '@/stores/article'
 import { storeToRefs } from 'pinia'
 import { useDebounce } from '@/composables/useDebounce'
-import { getSnapshots } from '@/services/snapshot'
+import { getSnapshots, createSnapshot } from '@/services/snapshot'
 import { saveAsset } from '@/services/assets'
 import { exportArticle } from '@/services/export'
 import type { Snapshot } from '@/types/article'
@@ -284,6 +287,15 @@ async function openSnapshots() {
 
 async function restoreSnapshot(snap: Snapshot) {
   if (!articleStore.currentArticle) return
+  // 恢复前把当前内容备份为快照，误恢复可随时找回
+  if (articleStore.currentContent.trim()) {
+    await createSnapshot(
+      articleStore.currentArticle.id,
+      articleStore.currentArticle.title,
+      articleStore.currentContent,
+      '恢复快照前备份'
+    )
+  }
   content.value = snap.content
   articleStore.currentContent = snap.content
   await articleStore.updateCurrentArticle({ content: snap.content })
@@ -509,6 +521,18 @@ function getTabTitle(id: string): string {
   font-size: 12px;
   font-weight: 600;
   color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.snap-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--warning-color);
+  background: rgba(210, 153, 34, 0.12);
+  border-radius: 4px;
+  padding: 0 5px;
 }
 
 .snap-preview {

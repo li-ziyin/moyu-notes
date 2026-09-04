@@ -6,6 +6,7 @@ import { db } from '@/services/db'
 import * as fsService from '@/services/fs'
 import { updateDoc as searchUpdate, removeDoc as searchRemove } from '@/services/search'
 import { createSnapshot, deleteAllSnapshots } from '@/services/snapshot'
+import { deleteAssetsForArticle } from '@/services/assets'
 import { encryptText, decryptText, isEncryptedPayload } from '@/services/crypto'
 import { syncLinksForArticle, getBacklinks, resolveLinksForTitle } from '@/services/links'
 import { buildIndex } from '@/services/search'
@@ -436,6 +437,9 @@ export const useArticleStore = defineStore('article', () => {
   async function permanentlyDeleteArticle(id: string) {
     await db.articles.delete(id)
     searchRemove(id)
+    // 彻底清理：明文快照与图片资产一并删除，避免"永久删除"名不副实
+    await deleteAllSnapshots(id)
+    await deleteAssetsForArticle(id)
     await loadTrash()
   }
 

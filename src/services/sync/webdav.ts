@@ -28,9 +28,17 @@ function joinUrl(cfg: WebDAVConfig, fileName?: string): string {
   return base + dir + (fileName ? encodeURIComponent(fileName) : '')
 }
 
+function toBase64Utf8(s: string): string {
+  // btoa 不支持非 Latin1 字符（如中文密码），先经 UTF-8 编码
+  const bytes = new TextEncoder().encode(s)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin)
+}
+
 function headers(cfg: WebDAVConfig, extra: Record<string, string> = {}): Record<string, string> {
   return {
-    Authorization: 'Basic ' + btoa(`${cfg.username}:${cfg.password}`),
+    Authorization: `Basic ${toBase64Utf8(`${cfg.username}:${cfg.password}`)}`,
     ...extra,
   }
 }

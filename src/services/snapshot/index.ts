@@ -10,11 +10,12 @@ function generateId(): string {
   return crypto.randomUUID?.() || Math.random().toString(36).substring(2, 15)
 }
 
-/** 创建快照 */
+/** 创建快照（可附带来源标签，用于自动备份场景） */
 export async function createSnapshot(
   articleId: string,
   title: string,
-  content: string
+  content: string,
+  label?: string
 ): Promise<void> {
   if (!content.trim()) return // 空内容不创建快照
   const snap: Snapshot = {
@@ -23,6 +24,7 @@ export async function createSnapshot(
     title,
     content,
     createdAt: Date.now(),
+    ...(label ? { label } : {}),
   }
   await db.snapshots.add(snap)
   await pruneSnapshots(articleId, 20)

@@ -170,7 +170,7 @@ async function onSync() {
     reportText.value =
       `同步完成：上传 ${report.uploaded} · 下载 ${report.downloaded} · ` +
       `新导入 ${report.created} · 清理远端 ${report.removedRemote}` +
-      (report.conflicts ? ` · ⚠ ${report.conflicts} 篇加密笔记被远端覆盖` : '')
+      (report.conflicts ? ` · 跳过 ${report.conflicts} 篇加密笔记（远端内容有更新，请解锁后在应用内手动合并）` : '')
   } catch (e) {
     errorText.value = `同步失败：${e instanceof Error ? e.message : e}（常见原因：服务端未开启跨域）`
   } finally {
