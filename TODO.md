@@ -1,0 +1,55 @@
+# TODO / 已知问题清单
+
+> 更新于 2026-09-05。路线图四个阶段（工程地基 / 写作闭环 / 知识管理 / 进阶）已全部完成，
+> 本清单记录审计后尚未处理的问题，按优先级排列。
+
+## 🔴 高优先级（功能缺陷）
+
+- [ ] **中文搜索召回率差**：FlexSearch 配置为 `tokenize: 'forward'` + `charset: 'latin:extra'`，
+  按空白分词，整段无空格的中文内容基本搜不到。对中文笔记应用是核心体验问题。
+  方向：换 `match`/双向分词、引入 CJK tokenizer，或改用 mini-search 等方案。
+- [ ] **文件系统模式的工作目录恢复半残**：`services/fs/index.ts` 的 `restoreWorkspace` 在页面
+  加载时调用 `requestPermission`，Chrome 要求该调用必须在用户手势内，重启浏览器后恢复会静默
+  失败退回 IndexedDB 模式。方向：恢复失败时给出"重新连接文件夹"的手动入口。
+- [ ] **移动端未适配**：布局是桌面三栏（侧栏/编辑器/预览），PWA 安装到手机后基本不可用。
+  方向：窄屏单栏 + 手势抽屉 + 底部工具条。
+
+## 🟡 中优先级（安全 / 数据）
+
+- [ ] **加密体系强化**：
+  - [ ] 每次自动保存都重新执行 PBKDF2 10 万次迭代派生密钥——应缓存派生出的 `CryptoKey`；
+  - [ ] 解锁一次整个会话有效，缺自动重锁定时器（如 15 分钟无操作重新锁定）；
+  - [ ] 笔记标题明文存储（侧栏/标签/文件名/搜索均可见），属元数据泄露，可考虑标题也入密文；
+  - [ ] PBKDF2 迭代次数 10 万偏低（OWASP 建议 SHA-256 下 60 万+，或迁移 Argon2id，但 Web Crypto 原生不支持）。
+- [ ] **zip 导出不含图片资产**：导出归档中 `asset://` 引用全部裂图。方向：导出时把资产
+  一并写入 `assets/` 目录并改写引用，或内联 data URL。
+- [ ] **回收站无自动清理**：软删除笔记永久留存，可加"30 天后自动清除"策略。
+
+## 🟢 低优先级（工程质量）
+
+- [ ] **零自动化测试**：`utils/smartIndent.ts`（智能续行）、`services/links`（双链解析）、
+  `services/crypto`（加解密往返）都是纯函数，非常适合 Vitest 单测；求职项目评审必问点。
+- [ ] **预览全文重渲染**：markdown-it 每次输入全量重新 parse + sanitize，超长笔记（百 KB+）会卡。
+  方向：预览渲染单独防抖，或增量渲染。
+- [ ] **多标签页并发写**：两个浏览器标签同时开会各自实例化 Dexie 互相覆盖，无 BroadcastChannel 同步。
+- [ ] **Monaco 依赖 jsdelivr CDN**：有供应链信任问题，且首次离线前不可用；可自托管到 `public/`。
+- [ ] **文件夹 / 标签**：Dexie 表和 Article 字段已预留，UI 一直未做。
+- [ ] **wordCount 字段从未更新**：建库写入后不再维护。
+- [ ] **CI 部署前置条件**：GitHub 仓库需手动把 Pages 来源设为 "GitHub Actions"，README 未提及。
+- [ ] **清理开发测试数据**：IndexedDB（5174 源）里还有 100+ 篇"压力测试笔记"，localStorage 里有
+  测试用 WebDAV 配置（指向 localhost:5180），正式使用前建议清空站点数据。
+
+## 🔧 开发环境备忘
+
+- 本机 Vite 文件监听（Windows）偶发不热更新：改代码后若 HMR 未生效，重启 dev server。
+  当前启动命令固定端口：`npm run dev -- --port 5174 --strictPort`。
+- `scripts/webdav-test-server.mjs` 是本地 WebDAV 测试服务器（端口 5180，含 CORS），
+  可用于端到端验证同步，数据落在 `.webdav-root/`（已 gitignore）。
+
+## ✅ 已解决（存档）
+
+- [x] 存储型 XSS：预览渲染统一 DOMPurify 消毒 + 外链 `rel="noopener"`（c513417）
+- [x] 静默丢字：同步覆盖/快照恢复前强制备份快照；加密笔记拒绝远端明文覆盖（30e242e）
+- [x] 数据耐久性：启动申请 `navigator.storage.persist()`
+- [x] 永久删除清理死角：连快照与图片资产一并删除
+- [x] WebDAV 非 Latin1（中文）密码导致 `btoa` 崩溃
