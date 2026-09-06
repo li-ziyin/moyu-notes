@@ -21,6 +21,9 @@ export const useArticleStore = defineStore('article', () => {
   const isFsMode = ref(false)
   const workspaceName = ref('')
 
+  /** 页面加载时目录句柄存在但权限未授予（浏览器要求手势），等用户手动重连 */
+  const pendingWorkspace = ref<{ name: string; handle: FileSystemDirectoryHandle } | null>(null)
+
   /** 文件句柄缓存：articleId → FileSystemFileHandle */
   const fileHandles = new Map<string, FileSystemFileHandle>()
 
@@ -91,10 +94,37 @@ export const useArticleStore = defineStore('article', () => {
         rebuildAllLinks()
         return
       }
+      // 权限未授予（无手势）：保留句柄，给用户"重新连接"入口
+      pendingWorkspace.value = { name: record.directoryName, handle: record.directoryHandle }
     }
     // 回退：纯 IndexedDB 模式
     await loadArticles()
     rebuildAllLinks()
+  }
+
+  /** 用户手势内重新连接上次的工作目录 */
+  const reconnectWorkspace = async (): Promise<boolean> => {
+    const pw = pendingWorkspace.value
+    if (!pw) return false
+    const ws = await fsService.restoreWorkspace(pw.handle)
+    if (!ws) {
+      // 用户拒绝授权：清掉记录，不再打扰
+      pendingWorkspace.value = null
+      await db.workspaces.delete('default')
+      return false
+    }
+    pendingWorkspace.value = null
+    isFsMode.value = true
+    workspaceName.value = ws.directoryName
+    await syncFsArticles()
+    rebuildAllLinks()
+    return true
+  }
+
+  /** 忽略未连接的工作目录提示 */
+  const dismissPendingWorkspace = async () => {
+    pendingWorkspace.value = null
+    await db.workspaces.delete('default')
   }
 
   /** 打开文件夹 */
@@ -118,6 +148,7 @@ export const useArticleStore = defineStore('article', () => {
     fileHandles.clear()
     isFsMode.value = false
     workspaceName.value = ''
+    pendingWorkspace.value = null
     currentArticleId.value = null
     currentContent.value = ''
     await db.workspaces.delete('default')
@@ -601,7 +632,10 @@ export const useArticleStore = defineStore('article', () => {
     stopAutoSnapshot,
     isFsMode,
     workspaceName,
+    pendingWorkspace,
     initWorkspace,
+    reconnectWorkspace,
+    dismissPendingWorkspace,
     openFolder,
     closeWorkspace,
     importMarkdownFile,

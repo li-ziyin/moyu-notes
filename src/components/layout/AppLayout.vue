@@ -33,9 +33,9 @@
         </button>
         <button
           class="icon-btn"
-          :class="{ active: ui.previewVisible }"
+          :class="{ active: isMobile ? mobilePreview : ui.previewVisible }"
           :title="ui.previewVisible ? '收起预览分栏' : '展开预览分栏'"
-          @click="ui.togglePreview"
+          @click="togglePreview"
         >
           <n-icon size="17"><grid-outline /></n-icon>
         </button>
@@ -64,9 +64,18 @@
         <EditorArea />
       </main>
 
-      <aside ref="previewColRef" class="preview" :class="{ collapsed: !ui.previewVisible }">
+      <aside ref="previewColRef" class="preview" :class="{ collapsed: effectivePreviewHidden }">
         <PreviewArea />
       </aside>
+
+      <!-- 移动端：侧栏展开时的遮罩 -->
+      <transition name="fade">
+        <div
+          v-if="isMobile && !ui.sidebarCollapsed"
+          class="mobile-backdrop"
+          @click="ui.toggleSidebar"
+        />
+      </transition>
 
       <!-- ── 大纲 / 反链抽屉（悬浮于工作区右侧） ── -->
       <transition name="drawer">
@@ -174,6 +183,32 @@ const searchPanelRef = ref<InstanceType<typeof SearchPanel>>()
 const previewColRef = ref<HTMLElement>()
 const graphVisible = ref(false)
 const drawerTab = ref<'outline' | 'backlinks'>('outline')
+
+// ── 移动端适配 ──
+const isMobile = ref(window.matchMedia('(max-width: 768px)').matches)
+
+function onMediaChange(e: MediaQueryListEvent) {
+  isMobile.value = e.matches
+}
+const mobileQuery = window.matchMedia('(max-width: 768px)')
+mobileQuery.addEventListener('change', onMediaChange)
+onBeforeUnmount(() => mobileQuery.removeEventListener('change', onMediaChange))
+
+/** 移动端预览默认隐藏（独立开关，不污染桌面端持久化状态） */
+const mobilePreview = ref(false)
+
+/** 移动端预览默认隐藏；桌面端跟随持久化状态 */
+const effectivePreviewHidden = computed(() =>
+  isMobile.value ? !mobilePreview.value : !ui.previewVisible
+)
+
+function togglePreview() {
+  if (isMobile.value) {
+    mobilePreview.value = !mobilePreview.value
+  } else {
+    ui.togglePreview()
+  }
+}
 
 const outlineItems = computed<OutlineItem[]>(() => parseOutline(articleStore.currentContent))
 
@@ -360,6 +395,95 @@ onBeforeUnmount(() => {
   &.collapsed {
     width: 0;
     border-left-color: transparent;
+  }
+}
+
+// ── 移动端遮罩 ──
+.mobile-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+// ── 移动端适配：<768px 侧栏与预览改为浮层 ──
+@media (max-width: 768px) {
+  .topbar {
+    padding: 0 8px 6px;
+  }
+
+  .workspace {
+    margin: 0 8px 8px;
+  }
+
+  .brand-name {
+    display: none; // 窄屏只留图标，给按钮腾空间
+  }
+
+  // 侧栏 → 左侧浮层抽屉
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(80vw, 300px) !important;
+    border-right: 1px solid var(--border-color);
+    transform: translateX(-105%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: none;
+
+    &.collapsed {
+      width: min(80vw, 300px) !important;
+      border-right-color: transparent;
+      transform: translateX(-105%);
+    }
+
+    &:not(.collapsed) {
+      transform: translateX(0);
+      box-shadow: var(--shadow-pop);
+    }
+  }
+
+  .sidebar-inner {
+    width: 100%;
+  }
+
+  // 预览 → 右侧滑入接管全屏
+  .preview {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    width: 100% !important;
+    border-left: 1px solid var(--border-color);
+    transform: translateX(105%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+
+    &.collapsed {
+      width: 100% !important;
+      border-left-color: transparent;
+      transform: translateX(105%);
+    }
+
+    &:not(.collapsed) {
+      transform: translateX(0);
+    }
+  }
+
+  // 大纲抽屉在窄屏上略窄
+  .outline-drawer {
+    width: min(58vw, 220px);
   }
 }
 

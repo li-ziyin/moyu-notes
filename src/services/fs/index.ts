@@ -38,19 +38,26 @@ export async function pickDirectory(): Promise<WorkspaceInfo> {
 /**
  * 尝试恢复之前授权过的目录句柄。
  * handle 必须来自此前 pickDirectory 后持久化的结果。
+ * 注意：requestPermission 需要用户手势，页面加载时调用会失败/抛异常，
+ * 失败统一返回 null，由上层提供"重新连接"的手动入口。
  */
 export async function restoreWorkspace(
   savedHandle: FileSystemDirectoryHandle
 ): Promise<WorkspaceInfo | null> {
-  const opts: FileSystemHandlePermissionDescriptor = { mode: 'readwrite' }
-  const granted = (await savedHandle.queryPermission?.(opts)) === 'granted'
-  if (!granted) {
-    const requested = await savedHandle.requestPermission?.(opts)
-    if (requested !== 'granted') return null
+  try {
+    const opts: FileSystemHandlePermissionDescriptor = { mode: 'readwrite' }
+    const granted = (await savedHandle.queryPermission?.(opts)) === 'granted'
+    if (!granted) {
+      const requested = await savedHandle.requestPermission?.(opts)
+      if (requested !== 'granted') return null
+    }
+    workspaceHandle = savedHandle
+    workspaceName = savedHandle.name
+    return { directoryHandle: savedHandle, directoryName: savedHandle.name }
+  } catch {
+    // 无用户手势等场景：浏览器直接抛异常，视为未授权
+    return null
   }
-  workspaceHandle = savedHandle
-  workspaceName = savedHandle.name
-  return { directoryHandle: savedHandle, directoryName: savedHandle.name }
 }
 
 /** 扫描工作目录下所有 .md 文件（仅根目录，不含子目录） */

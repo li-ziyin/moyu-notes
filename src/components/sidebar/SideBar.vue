@@ -1,5 +1,18 @@
 <template>
   <div class="sidebar-content">
+    <!-- 上次工作目录未连接提示（浏览器要求手势授权，需手动重连） -->
+    <div v-if="articleStore.pendingWorkspace" class="reconnect-bar">
+      <div class="reconnect-text">
+        上次的工作目录「{{ articleStore.pendingWorkspace.name }}」未连接
+      </div>
+      <div class="reconnect-actions">
+        <button class="reconnect-btn primary" @click="articleStore.reconnectWorkspace">
+          重新连接
+        </button>
+        <button class="reconnect-btn" @click="articleStore.dismissPendingWorkspace">忽略</button>
+      </div>
+    </div>
+
     <!-- 工作目录状态 -->
     <div class="workspace-bar" v-if="articleStore.isFsMode">
       <n-icon size="14" class="ws-icon"><folder-open-outline /></n-icon>
@@ -133,6 +146,56 @@ async function onExportAll() {
   display: flex;
   flex-direction: column;
   padding: 14px 12px 10px;
+}
+
+.reconnect-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--warning-color);
+  border-radius: var(--radius-md);
+  background: rgba(210, 153, 34, 0.08);
+}
+
+.reconnect-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.reconnect-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.reconnect-btn {
+  flex: 1;
+  padding: 5px 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &.primary {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #fff;
+
+    &:hover {
+      background: var(--accent-hover);
+    }
+  }
 }
 
 .workspace-bar {
