@@ -84,6 +84,7 @@ export const useArticleStore = defineStore('article', () => {
 
   /** 初始化：尝试恢复之前保存的工作目录 */
   const initWorkspace = async () => {
+    purgeExpiredTrash() // 后台清理过期回收站，不阻塞启动
     const record = await db.workspaces.get('default')
     if (record?.directoryHandle) {
       const ws = await fsService.restoreWorkspace(record.directoryHandle)
@@ -209,6 +210,7 @@ export const useArticleStore = defineStore('article', () => {
       openTabs.value.push(id)
     }
     currentArticleId.value = id
+    touchActivity()
   }
 
   function closeTab(id: string) {
@@ -306,6 +308,7 @@ export const useArticleStore = defineStore('article', () => {
     if (!currentArticleId.value) return
     const art = articles.value.find((a) => a.id === currentArticleId.value)
     if (!art) return
+    touchActivity()
 
     // 加密笔记：落库前用缓存密码重新加密，双链解析仍用明文
     let plainContent: string | undefined
@@ -466,12 +469,33 @@ export const useArticleStore = defineStore('article', () => {
   }
 
   async function permanentlyDeleteArticle(id: string) {
+    await hardDeleteArticle(id)
+    await loadTrash()
+  }
+
+  /** 彻底删除：文章 + 快照 + 图片资产一并清理 */
+  async function hardDeleteArticle(id: string) {
     await db.articles.delete(id)
     searchRemove(id)
-    // 彻底清理：明文快照与图片资产一并删除，避免"永久删除"名不副实
     await deleteAllSnapshots(id)
     await deleteAssetsForArticle(id)
-    await loadTrash()
+  }
+
+  // ── 回收站 30 天自动清理（软删除时间以 updatedAt 为准） ──
+  const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+  async function purgeExpiredTrash() {
+    const cutoff = Date.now() - TRASH_RETENTION_MS
+    const expired = await db.articles
+      .where('isDeleted')
+      .equals(1)
+      .filter((a) => a.updatedAt < cutoff)
+      .toArray()
+    if (expired.length === 0) return
+    for (const a of expired) {
+      await hardDeleteArticle(a.id)
+    }
+    if (showTrash.value) await loadTrash()
   }
 
   function toggleTrash() {
@@ -558,6 +582,7 @@ export const useArticleStore = defineStore('article', () => {
       unlockedIds.value.push(art.id)
       passwordCache.set(art.id, password)
       currentContent.value = plain
+      touchActivity()
       return true
     } catch {
       return false
@@ -571,6 +596,30 @@ export const useArticleStore = defineStore('article', () => {
     unlockedIds.value = unlockedIds.value.filter((x) => x !== id)
     passwordCache.delete(id)
     currentContent.value = ''
+  }
+
+  // ── 自动重锁：15 分钟无编辑/切换操作，自动锁上全部已解锁的加密笔记 ──
+  const AUTO_RELOCK_MS = 15 * 60 * 1000
+  const lastActivityAt = ref(Date.now())
+
+  function touchActivity() {
+    lastActivityAt.value = Date.now()
+  }
+
+  /** 检查空闲并执行自动重锁（定时器与页面回前台时触发；暴露以便测试） */
+  function relockIfIdle() {
+    if (unlockedIds.value.length === 0) return
+    if (Date.now() - lastActivityAt.value < AUTO_RELOCK_MS) return
+    unlockedIds.value = []
+    passwordCache.clear()
+    if (currentEncrypted.value) currentContent.value = ''
+  }
+
+  setInterval(relockIfIdle, 60 * 1000)
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) relockIfIdle()
+    })
   }
 
   // ── DB 模式导入 ──
@@ -651,6 +700,9 @@ export const useArticleStore = defineStore('article', () => {
     encryptCurrent,
     unlockCurrent,
     lockCurrent,
+    // 自动重锁
+    lastActivityAt,
+    relockIfIdle,
     // 双链
     linkVersion,
     backlinks,

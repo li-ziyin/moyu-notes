@@ -264,14 +264,14 @@ function isTabEncrypted(id: string): boolean {
 }
 
 // ── 导出 ──
-function exportCurrent() {
+async function exportCurrent() {
   const art = articleStore.currentArticle
   if (!art) return
   if (articleStore.currentLocked) {
     alert('笔记已加密，请先解锁后再导出')
     return
   }
-  exportArticle(art, content.value)
+  await exportArticle(art, content.value)
 }
 
 // ── 快照历史 ──

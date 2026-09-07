@@ -24,17 +24,28 @@ function fromB64(s: string): Uint8Array<ArrayBuffer> {
   return out
 }
 
+/** 派生密钥缓存：同一密码+盐组合只跑一次 PBKDF2（10 万次迭代），后续加解密零开销 */
+const keyCache = new Map<string, Promise<CryptoKey>>()
+
 async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
-  const base = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, [
-    'deriveKey',
-  ])
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-    base,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  )
+  const cacheKey = `${password}:${toB64(salt)}`
+  const cached = keyCache.get(cacheKey)
+  if (cached) return cached
+
+  const promise = (async () => {
+    const base = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, [
+      'deriveKey',
+    ])
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      base,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    )
+  })()
+  keyCache.set(cacheKey, promise)
+  return promise
 }
 
 /** 判断内容是否为本应用加密格式 */
