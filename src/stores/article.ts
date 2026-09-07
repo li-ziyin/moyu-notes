@@ -7,6 +7,7 @@ import * as fsService from '@/services/fs'
 import { updateDoc as searchUpdate, removeDoc as searchRemove } from '@/services/search'
 import { createSnapshot, deleteAllSnapshots } from '@/services/snapshot'
 import { deleteAssetsForArticle } from '@/services/assets'
+import { countWords } from '@/utils/wordCount'
 import { encryptText, decryptText, isEncryptedPayload } from '@/services/crypto'
 import { syncLinksForArticle, getBacklinks, resolveLinksForTitle } from '@/services/links'
 import { buildIndex } from '@/services/search'
@@ -318,6 +319,11 @@ export const useArticleStore = defineStore('article', () => {
       plainContent = changes.content
       changes = { ...changes, content: await encryptText(pw, changes.content) }
     }
+    // 字数统计随内容更新
+    const finalPlainForCount = plainContent ?? changes.content
+    if (finalPlainForCount !== undefined) {
+      changes = { ...changes, wordCount: countWords(finalPlainForCount) }
+    }
 
     await articleDB.updateArticle(currentArticleId.value, changes)
 
@@ -365,6 +371,7 @@ export const useArticleStore = defineStore('article', () => {
       const resolved = await resolveLinksForTitle(changes.title)
       if (resolved) linkVersion.value++
     }
+    broadcastChange()
   }
 
   const deleteCurrentArticle = async () => {
@@ -392,6 +399,7 @@ export const useArticleStore = defineStore('article', () => {
     const deletedId = currentArticleId.value
     const tabIdx = openTabs.value.indexOf(deletedId!)
     if (tabIdx !== -1) openTabs.value.splice(tabIdx, 1)
+    broadcastChange()
     currentArticleId.value = null
     currentContent.value = ''
   }
@@ -466,6 +474,7 @@ export const useArticleStore = defineStore('article', () => {
     await articleDB.updateArticle(id, { isDeleted: 0, updatedAt: Date.now() })
     await loadArticles()
     await loadTrash()
+    broadcastChange()
   }
 
   async function permanentlyDeleteArticle(id: string) {
@@ -647,14 +656,13 @@ export const useArticleStore = defineStore('article', () => {
     if (changed) linkVersion.value++
     currentArticleId.value = id
     currentContent.value = content
+    broadcastChange()
     return id
   }
 
   /** WebDAV 等外部同步后：重载数据并重建搜索索引与双链 */
   const refreshAfterExternalSync = async () => {
-    await loadArticles()
-    buildIndex(articles.value)
-    rebuildAllLinks()
+    await reloadMeta()
     // 当前打开的文章内容可能已被远端更新
     const art = currentArticle.value
     if (art && !currentLocked.value) {
@@ -662,6 +670,41 @@ export const useArticleStore = defineStore('article', () => {
         currentContent.value = art.content
       }
     }
+  }
+
+  /** 仅重载列表/搜索索引/双链（不动当前正在编辑的内容） */
+  const reloadMeta = async () => {
+    await loadArticles()
+    buildIndex(articles.value)
+    rebuildAllLinks()
+  }
+
+  // ── 多标签页并发同步：本页变更广播给其他页，其他页重载元数据 ──
+  const TAB_ID = Math.random().toString(36).slice(2)
+  let channel: BroadcastChannel | null = null
+  try {
+    channel = new BroadcastChannel('moyu-notes-sync')
+    channel.onmessage = (e) => {
+      if (e.data?.from === TAB_ID || e.data?.type !== 'articles-changed') return
+      reloadMeta()
+    }
+  } catch {
+    channel = null // 浏览器不支持时静默降级
+  }
+
+  /** 通知其他标签页：文章数据有变化 */
+  function broadcastChange() {
+    channel?.postMessage({ type: 'articles-changed', from: TAB_ID })
+  }
+
+  /** 清空全部本地数据（数据库 + 同步配置），用于测试数据复位或彻底重置 */
+  const wipeAllData = async () => {
+    stopAutoSnapshot()
+    channel?.close()
+    channel = null
+    await db.delete()
+    localStorage.clear()
+    location.reload()
   }
 
   return {
@@ -709,5 +752,7 @@ export const useArticleStore = defineStore('article', () => {
     openByTitle,
     // 外部同步
     refreshAfterExternalSync,
+    // 危险区
+    wipeAllData,
   }
 })

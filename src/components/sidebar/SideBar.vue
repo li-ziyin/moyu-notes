@@ -70,6 +70,12 @@
       WebDAV 同步
     </button>
 
+    <!-- 危险区：清空全部数据 -->
+    <button class="wipe-all" title="删除本机全部笔记数据，不可恢复" @click="onWipeAll">
+      <n-icon size="14"><warning-outline /></n-icon>
+      清空全部数据
+    </button>
+
     <div class="footer">本地优先 · 数据保存在你的设备上</div>
 
     <SyncPanel v-model="showSync" />
@@ -99,6 +105,7 @@ import {
   CloseOutline,
   ArchiveOutline,
   SyncOutline,
+  WarningOutline,
 } from '@vicons/ionicons5'
 import FileTree from './FileTree.vue'
 import SyncPanel from '@/components/sync/SyncPanel.vue'
@@ -137,6 +144,13 @@ async function onExportAll() {
   } finally {
     exporting.value = false
   }
+}
+
+async function onWipeAll() {
+  const total = articleStore.articles.length + articleStore.trashArticles.length
+  if (!confirm(`确定清空全部数据吗？\n本机共 ${total || '若干'} 篇笔记（含回收站）将被永久删除。`)) return
+  if (!confirm('最后确认：此操作不可恢复，所有笔记、快照、图片与同步配置都会被删除。')) return
+  await articleStore.wipeAllData()
 }
 </script>
 
@@ -377,6 +391,29 @@ async function onExportAll() {
   &:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+}
+
+// ── 危险区：清空全部数据 ──
+.wipe-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 2px;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: rgba(229, 83, 75, 0.08);
+    color: var(--danger-color);
   }
 }
 

@@ -70,6 +70,15 @@ npm run build
 
 > 浏览器要求：本地文件夹模式依赖 File System Access API，需 Chrome / Edge 86+。
 
+## 测试与部署
+
+```bash
+npm test        # 运行 Vitest 单元测试（智能续行 / 加解密 / 搜索分词 / 双链解析 / 字数统计）
+```
+
+部署：推送到 GitHub 后，在仓库 **Settings → Pages → Source** 选择 **GitHub Actions**，
+之后每次推送 main 分支会自动执行类型检查、构建并发布到 GitHub Pages。
+
 ## 路线图
 
 - [x] 阶段 0：工程地基（Vite / ESLint / 主题系统 / 布局）

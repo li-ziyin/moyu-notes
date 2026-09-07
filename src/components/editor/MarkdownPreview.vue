@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { ensureAssetUrls, peekAssetUrl } from '@/services/assets'
@@ -13,6 +13,13 @@ const props = defineProps<{
 }>()
 
 const html = ref('')
+let renderTimer: number | null = null
+/** 超过该长度的文档启用渲染防抖 */
+const LARGE_DOC_THRESHOLD = 30000
+
+onBeforeUnmount(() => {
+  if (renderTimer) clearTimeout(renderTimer)
+})
 
 const md = new MarkdownIt({
   html: true,
@@ -85,7 +92,18 @@ watch(
   async (newContent) => {
     // 先确保图片资产已生成 blob URL，再渲染并消毒
     await ensureAssetUrls(newContent || '')
-    html.value = sanitize(md.render(newContent || ''))
+    const doRender = () => {
+      html.value = sanitize(md.render(newContent || ''))
+    }
+    // 长文渲染防抖：全文 parse + 消毒开销随长度增长，超过阈值延迟 200ms 合并渲染；
+    // 短文保持逐键即时渲染
+    if ((newContent || '').length > LARGE_DOC_THRESHOLD) {
+      if (renderTimer) clearTimeout(renderTimer)
+      renderTimer = window.setTimeout(doRender, 200)
+    } else {
+      if (renderTimer) clearTimeout(renderTimer)
+      doRender()
+    }
   },
   { immediate: true }
 )

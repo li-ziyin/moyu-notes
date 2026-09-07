@@ -7,18 +7,10 @@
 import { db } from '@/services/db'
 import type { Link } from '@/types/article'
 import { isEncryptedPayload } from '@/services/crypto'
+import { parseWikiTitles } from '@/utils/wiki'
 
-const WIKI_RE = /\[\[([^[\]\n]+)\]\]/g
-
-/** 从 Markdown 文本中提取所有 wiki 链接目标标题（去重保序） */
-export function parseWikiTitles(content: string): string[] {
-  const out: string[] = []
-  for (const m of content.matchAll(WIKI_RE)) {
-    const t = m[1].trim()
-    if (t && !out.includes(t)) out.push(t)
-  }
-  return out
-}
+// 供旧引用兼容：解析逻辑在 utils/wiki.ts（纯函数，可单测）
+export { parseWikiTitles } from '@/utils/wiki'
 
 /** 按标题解析目标文章 id，未找到返回空串 */
 async function resolveTitle(title: string): Promise<string> {
