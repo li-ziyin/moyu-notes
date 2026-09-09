@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { Article } from '@/types/article'
+import type { Article, Folder } from '@/types/article'
 import * as articleDB from '@/services/db/article'
 import { db } from '@/services/db'
 import * as fsService from '@/services/fs'
@@ -235,6 +235,123 @@ export const useArticleStore = defineStore('article', () => {
 
   const loadArticles = async () => {
     articles.value = await articleDB.getAllArticles()
+    folders.value = await db.folders.toArray()
+  }
+
+  // ── 文件夹 ──
+  const folders = ref<Folder[]>([])
+
+  function generateId(): string {
+    return crypto.randomUUID?.() || Math.random().toString(36).substring(2, 15)
+  }
+
+  async function loadFolders() {
+    folders.value = await db.folders.toArray()
+  }
+
+  /** 新建文件夹（可指定父文件夹） */
+  const createFolder = async (name: string, parentId: string | null = null) => {
+    const trimmed = name.trim()
+    if (!trimmed) return null
+    const maxOrder = folders.value
+      .filter((f) => (f.parentId ?? null) === parentId)
+      .reduce((m, f) => Math.max(m, f.sortOrder), 0)
+    const folder: Folder = {
+      id: generateId(),
+      name: trimmed,
+      parentId,
+      sortOrder: maxOrder + 1,
+      createdAt: Date.now(),
+    }
+    await db.folders.put(folder)
+    await loadFolders()
+    broadcastChange()
+    return folder
+  }
+
+  async function renameFolder(id: string, name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    await db.folders.update(id, { name: trimmed })
+    await loadFolders()
+    broadcastChange()
+  }
+
+  /** 删除文件夹：其中的子文件夹与笔记上移一层（不丢数据） */
+  async function deleteFolder(id: string) {
+    const folder = folders.value.find((f) => f.id === id)
+    if (!folder) return
+    const parentId = folder.parentId ?? null
+    await db.transaction('rw', [db.folders, db.articles], async () => {
+      const children = folders.value.filter((f) => f.parentId === id)
+      for (const child of children) {
+        await db.folders.update(child.id, { parentId })
+      }
+      const inside = articles.value.filter((a) => a.folderId === id)
+      for (const a of inside) {
+        await db.articles.update(a.id, { folderId: parentId })
+      }
+      await db.folders.delete(id)
+    })
+    await Promise.all([loadFolders(), loadArticles()])
+    broadcastChange()
+  }
+
+  /** 把笔记移动到文件夹（null = 根目录；不刷新 updatedAt，避免污染同步时间判断） */
+  async function moveArticleToFolder(articleId: string, folderId: string | null) {
+    const art = articles.value.find((a) => a.id === articleId)
+    if (!art || (art.folderId ?? null) === folderId) return
+    await db.articles.update(articleId, { folderId })
+    const idx = articles.value.findIndex((a) => a.id === articleId)
+    if (idx !== -1) articles.value[idx] = { ...articles.value[idx], folderId }
+    broadcastChange()
+  }
+
+  // ── 标签 ──
+  /** 当前标签筛选（null = 全部） */
+  const tagFilter = ref<string | null>(null)
+
+  /** 应用筛选后的文章列表（供侧栏树渲染） */
+  const visibleArticles = computed(() =>
+    tagFilter.value
+      ? articles.value.filter((a) => a.isDeleted === 0 && a.tags?.includes(tagFilter.value!))
+      : articles.value
+  )
+
+  /** 全部标签及计数（未删除笔记） */
+  const allTags = computed(() => {
+    const counts = new Map<string, number>()
+    for (const a of articles.value) {
+      if (a.isDeleted !== 0) continue
+      for (const t of a.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((x, y) => y.count - x.count || x.name.localeCompare(y.name))
+  })
+
+  async function addTag(articleId: string, tag: string) {
+    const trimmed = tag.trim()
+    if (!trimmed) return
+    const art = articles.value.find((a) => a.id === articleId)
+    if (!art || art.tags?.includes(trimmed)) return
+    const tags = [...(art.tags ?? []), trimmed]
+    await articleDB.updateArticle(articleId, { tags })
+    const idx = articles.value.findIndex((a) => a.id === articleId)
+    if (idx !== -1) articles.value[idx] = { ...articles.value[idx], tags }
+  }
+
+  async function removeTag(articleId: string, tag: string) {
+    const art = articles.value.find((a) => a.id === articleId)
+    if (!art) return
+    const tags = (art.tags ?? []).filter((t) => t !== tag)
+    await articleDB.updateArticle(articleId, { tags })
+    const idx = articles.value.findIndex((a) => a.id === articleId)
+    if (idx !== -1) articles.value[idx] = { ...articles.value[idx], tags }
+    // 正在筛选的标签被删光时自动取消筛选
+    if (tagFilter.value === tag && !articles.value.some((a) => a.tags?.includes(tag))) {
+      tagFilter.value = null
+    }
   }
 
   const createArticle = async () => {
@@ -752,6 +869,18 @@ export const useArticleStore = defineStore('article', () => {
     openByTitle,
     // 外部同步
     refreshAfterExternalSync,
+    // 文件夹 / 标签
+    folders,
+    loadFolders,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    moveArticleToFolder,
+    tagFilter,
+    visibleArticles,
+    allTags,
+    addTag,
+    removeTag,
     // 危险区
     wipeAllData,
   }

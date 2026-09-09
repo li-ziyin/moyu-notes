@@ -75,6 +75,30 @@
       </div>
     </div>
 
+    <!-- 标签行 -->
+    <div v-if="articleStore.currentArticle" class="tags-row">
+      <span v-for="tag in currentTags" :key="tag" class="tag-chip">
+        # {{ tag }}
+        <button class="tag-remove" :title="`移除标签「${tag}」`" @click="articleStore.removeTag(articleStore.currentArticle!.id, tag)">
+          <n-icon size="10"><close-outline /></n-icon>
+        </button>
+      </span>
+      <button v-if="!addingTag" class="tag-add" @click="startAddTag">
+        <n-icon size="12"><pricetag-outline /></n-icon>
+        添加标签
+      </button>
+      <input
+        v-else
+        ref="tagInputRef"
+        v-model="newTag"
+        class="tag-input"
+        placeholder="标签名，回车确认"
+        @keydown.enter="confirmAddTag"
+        @keydown.escape="addingTag = false"
+        @blur="confirmAddTag"
+      />
+    </div>
+
     <!-- 编辑器 / 锁屏 / 空状态 -->
     <div class="editor-body">
       <template v-if="articleStore.currentArticle">
@@ -136,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 import { NIcon } from 'naive-ui'
 import {
   CloseOutline,
@@ -147,6 +171,7 @@ import {
   LockClosedOutline,
   LockOpenOutline,
   DownloadOutline,
+  PricetagOutline,
 } from '@vicons/ionicons5'
 import MonacoEditor from './MonacoEditor.vue'
 import PasswordDialog from '@/components/common/PasswordDialog.vue'
@@ -221,6 +246,27 @@ function deleteArticle() {
   if (confirm(`确定删除「${articleStore.currentArticle.title}」吗？\n可在回收站中恢复。`)) {
     articleStore.deleteCurrentArticle()
   }
+}
+
+// ── 标签 ──
+const addingTag = ref(false)
+const newTag = ref('')
+const tagInputRef = ref<HTMLInputElement>()
+
+const currentTags = computed(() => articleStore.currentArticle?.tags ?? [])
+
+async function startAddTag() {
+  addingTag.value = true
+  newTag.value = ''
+  await nextTick()
+  tagInputRef.value?.focus()
+}
+
+async function confirmAddTag() {
+  if (!addingTag.value || !articleStore.currentArticle) return
+  const tag = newTag.value.trim()
+  addingTag.value = false
+  if (tag) await articleStore.addTag(articleStore.currentArticle.id, tag)
 }
 
 // ── 图片粘贴 ──
@@ -549,6 +595,78 @@ function getTabTitle(id: string): string {
   font-size: 12px;
   color: var(--text-tertiary);
   line-height: 1.8;
+}
+
+// ── 标签行 ──
+.tags-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 20px 10px;
+  flex-shrink: 0;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--accent-color);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 3px 4px 3px 9px;
+}
+
+.tag-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(79, 107, 237, 0.2);
+  }
+}
+
+.tag-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+  }
+}
+
+.tag-input {
+  width: 140px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-color);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 10px;
+  outline: none;
+
+  &::placeholder {
+    color: var(--text-tertiary);
+  }
 }
 
 // ── 加密锁屏 ──

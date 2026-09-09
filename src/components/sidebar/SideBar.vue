@@ -25,7 +25,7 @@
     </button>
 
     <FileTree
-      :articles="articleStore.articles"
+      :articles="articleStore.visibleArticles"
       :current-id="articleStore.currentArticleId"
       @select="articleStore.selectArticle"
       @create="articleStore.createArticle"
