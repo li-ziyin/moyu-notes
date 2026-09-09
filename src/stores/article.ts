@@ -796,6 +796,35 @@ export const useArticleStore = defineStore('article', () => {
     rebuildAllLinks()
   }
 
+  // ── 备份提醒：浏览器存储模式下，超过 7 天未备份则启动时提醒一次 ──
+  const BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
+  const REMIND_ONCE_MS = 24 * 60 * 60 * 1000
+  const backupReminderVisible = ref(false)
+
+  function checkBackupReminder() {
+    // 文件夹模式数据已是磁盘文件，不依赖浏览器存储
+    if (isFsMode.value) return
+    if (visibleArticles.value.length === 0) return // 空库不提醒
+    const now = Date.now()
+    const lastBackup = Number(localStorage.getItem('moyu.lastBackupAt') || 0)
+    const lastRemind = Number(localStorage.getItem('moyu.backupRemindAt') || 0)
+    if (now - lastBackup < BACKUP_INTERVAL_MS) return
+    if (now - lastRemind < REMIND_ONCE_MS) return // 每天最多提醒一次
+    backupReminderVisible.value = true
+  }
+
+  /** 完成一次全量备份（导出 zip / WebDAV 同步成功） */
+  function markBackedUp() {
+    localStorage.setItem('moyu.lastBackupAt', String(Date.now()))
+    backupReminderVisible.value = false
+  }
+
+  /** 用户选择暂不备份：当天不再提醒 */
+  function dismissBackupReminder() {
+    localStorage.setItem('moyu.backupRemindAt', String(Date.now()))
+    backupReminderVisible.value = false
+  }
+
   // ── 多标签页并发同步：本页变更广播给其他页，其他页重载元数据 ──
   const TAB_ID = Math.random().toString(36).slice(2)
   let channel: BroadcastChannel | null = null
@@ -881,6 +910,11 @@ export const useArticleStore = defineStore('article', () => {
     allTags,
     addTag,
     removeTag,
+    // 备份提醒
+    backupReminderVisible,
+    checkBackupReminder,
+    markBackedUp,
+    dismissBackupReminder,
     // 危险区
     wipeAllData,
   }

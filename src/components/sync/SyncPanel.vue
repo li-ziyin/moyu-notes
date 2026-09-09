@@ -165,6 +165,7 @@ async function onSync() {
   try {
     const report = await syncWithWebDAV(cfg, articleStore.articles)
     await articleStore.refreshAfterExternalSync()
+    articleStore.markBackedUp() // 同步成功 = 远端已有一份完整存档
     setLastSyncTime(Date.now())
     lastSyncText.value = formatTime(Date.now())
     reportText.value =

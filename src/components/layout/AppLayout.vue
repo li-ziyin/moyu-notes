@@ -249,6 +249,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
 onMounted(async () => {
   await articleStore.initWorkspace()
   buildIndex(articleStore.articles)
+  articleStore.checkBackupReminder() // 浏览器存储模式下检查是否需要备份提醒
   document.addEventListener('keydown', onGlobalKeydown)
 })
 
