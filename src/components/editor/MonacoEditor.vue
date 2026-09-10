@@ -178,9 +178,11 @@ function registerWikiCompletion() {
 }
 
 onMounted(async () => {
+  // 自托管：编辑器文件随应用部署（public/monaco/vs），不依赖任何第三方 CDN
+  // 用 baseURI 解析，兼容 GitHub Pages 子路径部署
   loader.config({
     paths: {
-      vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs',
+      vs: new URL('monaco/vs', document.baseURI).href.replace(/\/+$/, ''),
     },
   })
 

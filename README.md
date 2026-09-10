@@ -50,7 +50,7 @@
 |------|------|
 | 框架 | Vue 3（组合式 API）+ TypeScript + Vite |
 | 状态管理 | Pinia |
-| 编辑器 | Monaco Editor（CDN 加载） |
+| 编辑器 | Monaco Editor（自托管，不依赖外部 CDN） |
 | 渲染 | markdown-it |
 | 存储 | Dexie（IndexedDB）+ File System Access API |
 | 搜索 | FlexSearch |

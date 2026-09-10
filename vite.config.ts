@@ -28,13 +28,15 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // Monaco 编辑器从 CDN 加载，运行时缓存实现完整离线
+        // Monaco 编辑器文件体积大（~4MB），不进预缓存（避免首次安装变慢），
+        // 改为运行时缓存：首次在线访问后即可离线使用
+        globIgnores: ['**/monaco/**'],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/.*/i,
+            urlPattern: /\/monaco\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'monaco-cdn',
+              cacheName: 'monaco-self-hosted',
               expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [0, 200] },
             },
