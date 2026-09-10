@@ -41,6 +41,17 @@
         </button>
         <button
           class="icon-btn"
+          :class="{ active: isFullscreen }"
+          :title="isFullscreen ? '退出全屏（Esc）' : '进入全屏'"
+          @click="toggleFullscreen"
+        >
+          <n-icon size="17">
+            <contract-outline v-if="isFullscreen" />
+            <scan-outline v-else />
+          </n-icon>
+        </button>
+        <button
+          class="icon-btn"
           :title="theme === 'light' ? '切换暗色主题' : '切换亮色主题'"
           @click="toggleTheme"
         >
@@ -162,6 +173,8 @@ import {
   SunnyOutline,
   CloseOutline,
   GitNetworkOutline,
+  ScanOutline,
+  ContractOutline,
 } from '@vicons/ionicons5'
 import SideBar from '@/components/sidebar/SideBar.vue'
 import EditorArea from '@/components/editor/EditorArea.vue'
@@ -209,6 +222,31 @@ function togglePreview() {
     ui.togglePreview()
   }
 }
+
+// ── 全屏：写作禅模式（全屏 + 双栏折叠） ──
+const isFullscreen = ref(!!document.fullscreenElement)
+
+function onFullscreenChange() {
+  isFullscreen.value = !!document.fullscreenElement
+}
+
+async function toggleFullscreen() {
+  const doc = document as any
+  const el = document.documentElement as any
+  try {
+    if (doc.fullscreenElement) {
+      await (doc.exitFullscreen ? doc.exitFullscreen() : doc.webkitExitFullscreen?.())
+    } else {
+      const request = el.requestFullscreen || el.webkitRequestFullscreen
+      if (request) await request.call(el)
+    }
+  } catch {
+    // 用户拒绝授权或当前环境不支持全屏
+  }
+}
+
+document.addEventListener('fullscreenchange', onFullscreenChange)
+onBeforeUnmount(() => document.removeEventListener('fullscreenchange', onFullscreenChange))
 
 const outlineItems = computed<OutlineItem[]>(() => parseOutline(articleStore.currentContent))
 
