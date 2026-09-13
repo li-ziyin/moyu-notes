@@ -157,6 +157,9 @@
     <!-- ── 知识图谱 ── -->
     <GraphPanel v-model:visible="graphVisible" @open="onGraphOpen" />
 
+    <!-- ── 备份提醒（右上角浮出） ── -->
+    <BackupToast />
+
     <SearchPanel ref="searchPanelRef" @select="onSearchSelect" />
   </div>
 </template>
@@ -181,6 +184,7 @@ import EditorArea from '@/components/editor/EditorArea.vue'
 import PreviewArea from '@/components/preview/PreviewArea.vue'
 import SearchPanel from '@/components/search/SearchPanel.vue'
 import GraphPanel from '@/components/graph/GraphPanel.vue'
+import BackupToast from '@/components/common/BackupToast.vue'
 import { useArticleStore } from '@/stores/article'
 import { useSettingStore } from '@/stores/setting'
 import { storeToRefs } from 'pinia'

@@ -1,16 +1,5 @@
 <template>
   <div class="sidebar-content">
-    <!-- 备份提醒（浏览器存储模式，超过 7 天未备份） -->
-    <div v-if="articleStore.backupReminderVisible" class="backup-bar">
-      <div class="backup-text">
-        已超过 7 天未备份，浏览器数据可能被清理软件或误操作清除，建议导出存档
-      </div>
-      <div class="backup-actions">
-        <button class="backup-btn primary" @click="onBackupExport">立即导出</button>
-        <button class="backup-btn" @click="articleStore.dismissBackupReminder()">知道了</button>
-      </div>
-    </div>
-
     <!-- 上次工作目录未连接提示（浏览器要求手势授权，需手动重连） -->
     <div v-if="articleStore.pendingWorkspace" class="reconnect-bar">
       <div class="reconnect-text">
@@ -158,17 +147,6 @@ async function onExportAll() {
   }
 }
 
-async function onBackupExport() {
-  if (exporting.value) return
-  exporting.value = true
-  try {
-    await exportAllZip()
-    articleStore.markBackedUp()
-  } finally {
-    exporting.value = false
-  }
-}
-
 async function onWipeAll() {
   const total = articleStore.articles.length + articleStore.trashArticles.length
   if (!confirm(`确定清空全部数据吗？\n本机共 ${total || '若干'} 篇笔记（含回收站）将被永久删除。`)) return
@@ -183,56 +161,6 @@ async function onWipeAll() {
   display: flex;
   flex-direction: column;
   padding: 14px 12px 10px;
-}
-
-// ── 备份提醒条 ──
-.backup-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border: 1px solid var(--warning-color);
-  border-radius: var(--radius-md);
-  background: rgba(210, 153, 34, 0.08);
-}
-
-.backup-text {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-}
-
-.backup-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.backup-btn {
-  flex: 1;
-  padding: 5px 0;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-
-  &:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  &.primary {
-    background: var(--accent-color);
-    border-color: var(--accent-color);
-    color: #fff;
-
-    &:hover {
-      background: var(--accent-hover);
-    }
-  }
 }
 
 .reconnect-bar {
