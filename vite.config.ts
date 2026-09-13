@@ -50,6 +50,19 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // 第三方库拆为独立 chunk：应用发版后用户浏览器仍可命中库缓存
+        manualChunks: {
+          'vendor-vue': ['vue', 'pinia'],
+          'vendor-editor': ['@monaco-editor/loader'],
+          'vendor-data': ['dexie', 'flexsearch'],
+          'vendor-markdown': ['markdown-it', 'dompurify'],
+        },
+      },
+    },
+  },
   css: {
     preprocessorOptions: {
       scss: {

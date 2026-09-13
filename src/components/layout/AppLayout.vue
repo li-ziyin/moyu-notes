@@ -181,7 +181,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { NIcon } from 'naive-ui'
 import {
   MenuOutline,
@@ -199,9 +199,10 @@ import {
 import SideBar from '@/components/sidebar/SideBar.vue'
 import EditorArea from '@/components/editor/EditorArea.vue'
 import PreviewArea from '@/components/preview/PreviewArea.vue'
-import SearchPanel from '@/components/search/SearchPanel.vue'
-import GraphPanel from '@/components/graph/GraphPanel.vue'
 import BackupToast from '@/components/common/BackupToast.vue'
+// 按需加载的重型面板：拆为异步 chunk，首屏不加载
+const SearchPanel = defineAsyncComponent(() => import('@/components/search/SearchPanel.vue'))
+const GraphPanel = defineAsyncComponent(() => import('@/components/graph/GraphPanel.vue'))
 import { useArticleStore } from '@/stores/article'
 import { useSettingStore } from '@/stores/setting'
 import { storeToRefs } from 'pinia'
@@ -314,6 +315,20 @@ async function onDrop(e: DragEvent) {
   if (imported === 0) return
   buildIndex(articleStore.articles)
 }
+
+// 文件夹模式：窗口聚焦 / 切回页面时检查外部编辑器的改动
+function onWindowFocus() {
+  articleStore.syncExternalChanges()
+}
+function onVisibility() {
+  if (!document.hidden) onWindowFocus()
+}
+window.addEventListener('focus', onWindowFocus)
+document.addEventListener('visibilitychange', onVisibility)
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', onWindowFocus)
+  document.removeEventListener('visibilitychange', onVisibility)
+})
 
 // Ctrl+P 打开搜索（全局监听）
 function onGlobalKeydown(e: KeyboardEvent) {

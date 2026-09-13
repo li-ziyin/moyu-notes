@@ -1,10 +1,9 @@
 /**
  * 导入导出服务
  * - 单篇导出为 .md 下载（图片资产内联为 data URL）
- * - 全部导出为 zip 包（图片资产收入 assets/ 目录并改写引用）
+ * - 全部导出为 zip 包（jszip 按需动态加载，不占首屏体积）
  */
 
-import JSZip from 'jszip'
 import { db } from '@/services/db'
 import type { Article } from '@/types/article'
 
@@ -67,8 +66,9 @@ export async function exportArticle(art: Article, content: string): Promise<void
 
 /** 导出全部笔记为 zip：图片资产收入 assets/ 目录并改写引用 */
 export async function exportAllZip(): Promise<void> {
-  const articles = await db.articles.where('isDeleted').equals(0).toArray()
+  const { default: JSZip } = await import('jszip') // 按需加载
   const zip = new JSZip()
+  const articles = await db.articles.where('isDeleted').equals(0).toArray()
   const assetsFolder = zip.folder('assets')
   const used = new Set<string>()
   let assetCount = 0

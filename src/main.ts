@@ -1,5 +1,4 @@
 import { createApp } from 'vue'
-import naive from 'naive-ui'
 import App from './App.vue'
 import { pinia } from './stores'
 import { useArticleStore } from '@/stores/article'
@@ -7,7 +6,6 @@ import '@/assets/styles/index.scss'
 
 const app = createApp(App)
 app.use(pinia)
-app.use(naive)
 app.mount('#app')
 
 // 开发模式暴露 store 便于控制台调试与自动化测试

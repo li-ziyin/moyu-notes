@@ -15,8 +15,10 @@ const props = withDefaults(
     theme?: string
     /** 文章标识：变化时整体重设内容（光标重置是预期行为）；打字过程中的内容同步不会经过这条路径 */
     articleKey?: string | null
+    /** 专注模式：光标恒居屏幕中部 + 当前行高亮 */
+    typewriter?: boolean
   }>(),
-  { theme: 'light', articleKey: null }
+  { theme: 'light', articleKey: null, typewriter: false }
 )
 
 const emit = defineEmits<{
@@ -138,6 +140,17 @@ function insertText(text: string) {
 
 defineExpose({ insertText })
 
+/** 打字机滚动：把光标所在行滚到视口垂直中部（reveal* 在部分配置下不生效，手动计算更可靠） */
+function typewriterScroll() {
+  const editor = editorInstance
+  if (!editor) return
+  const pos = editor.getPosition()
+  if (!pos) return
+  const lineTop = editor.getTopForLineNumber(pos.lineNumber)
+  const target = Math.max(0, lineTop - editor.getLayoutInfo().height / 2)
+  editor.setScrollTop(target)
+}
+
 /** 注册 [[ 双链补全：输入 [[ 后提示全部笔记标题 */
 function registerWikiCompletion() {
   const articleStore = useArticleStore()
@@ -194,13 +207,19 @@ onMounted(async () => {
     base: 'vs',
     inherit: true,
     rules: [],
-    colors: { 'editor.background': '#ffffff' },
+    colors: {
+      'editor.background': '#ffffff',
+      'editor.lineHighlightBackground': '#f1f2f8',
+    },
   })
   monacoInstance.editor.defineTheme('moyu-dark', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
-    colors: { 'editor.background': '#12151c' },
+    colors: {
+      'editor.background': '#12151c',
+      'editor.lineHighlightBackground': '#1c212b',
+    },
   })
 
   editorInstance = monacoInstance.editor.create(editorContainer.value!, {
@@ -242,9 +261,12 @@ onMounted(async () => {
     emit('change', value)
   })
 
-  // 光标位置（状态栏显示 行/列）
+  // 光标位置（状态栏显示 行/列）；专注模式下光标恒居屏幕中部
   editorInstance.onDidChangeCursorPosition((e: any) => {
     emit('cursorMove', { line: e.position.lineNumber, column: e.position.column })
+    if (props.typewriter) {
+      typewriterScroll()
+    }
   })
 
   // IME 组合追踪：组合期间的 Enter 是确认候选词，不触发智能续行
@@ -264,6 +286,14 @@ watch(
     if (monacoInstance) {
       monacoInstance.editor.setTheme(newTheme === 'dark' ? 'moyu-dark' : 'moyu-light')
     }
+  }
+)
+
+// 专注模式开关：切换当前行高亮
+watch(
+  () => props.typewriter,
+  (on) => {
+    editorInstance?.updateOptions({ renderLineHighlight: on ? 'line' : 'none' })
   }
 )
 

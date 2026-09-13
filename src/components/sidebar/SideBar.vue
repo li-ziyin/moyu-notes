@@ -108,9 +108,10 @@ import {
   WarningOutline,
 } from '@vicons/ionicons5'
 import FileTree from './FileTree.vue'
-import SyncPanel from '@/components/sync/SyncPanel.vue'
 import { useArticleStore } from '@/stores/article'
 import { exportAllZip } from '@/services/export'
+import { defineAsyncComponent } from 'vue'
+const SyncPanel = defineAsyncComponent(() => import('@/components/sync/SyncPanel.vue'))
 
 const articleStore = useArticleStore()
 

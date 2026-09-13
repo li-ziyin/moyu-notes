@@ -109,6 +109,7 @@
         v-model="content"
         :theme="theme"
         :article-key="articleStore.currentArticleId"
+        :typewriter="typewriter"
         @change="onContentChange"
         @image-paste="onImagePaste"
         @cursor-move="onCursorMove"
@@ -164,6 +165,15 @@
       </div>
       <div class="status-group">
         <span>行 {{ cursorPos.line }}，列 {{ cursorPos.column }}</span>
+        <span class="status-divider"></span>
+        <button
+          class="focus-toggle"
+          :class="{ active: typewriter }"
+          :title="typewriter ? '关闭专注模式（打字机滚动 + 当前行高亮）' : '开启专注模式（打字机滚动 + 当前行高亮）'"
+          @click="typewriter = !typewriter"
+        >
+          专注
+        </button>
         <span class="status-divider"></span>
         <span class="save-state" :class="saveStatus">
           <span class="save-dot"></span>
@@ -224,6 +234,10 @@ const charCount = computed(() => content.value.length)
 function onCursorMove(pos: { line: number; column: number }) {
   cursorPos.value = pos
 }
+
+// ── 专注模式（打字机滚动 + 当前行高亮，状态持久化） ──
+const typewriter = ref(localStorage.getItem('moyu.typewriter') === '1')
+watch(typewriter, (v) => localStorage.setItem('moyu.typewriter', v ? '1' : '0'))
 
 // 内容同步：只在 currentContent 与本地不一致时写入（文章切换 / 快照恢复 / 解锁）
 // 打字过程中两者始终相等，因此不会触发 Monaco 的 setValue，杜绝光标跳动
@@ -843,6 +857,28 @@ function getTabTitle(id: string): string {
   width: 1px;
   height: 10px;
   background: var(--border-color);
+}
+
+.focus-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 1px 7px;
+  border-radius: 999px;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: var(--accent-soft);
+    color: var(--accent-color);
+    font-weight: 600;
+  }
 }
 
 .save-state {

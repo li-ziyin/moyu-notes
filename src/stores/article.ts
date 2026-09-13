@@ -157,7 +157,7 @@ export const useArticleStore = defineStore('article', () => {
     await loadArticles()
   }
 
-  /** 扫描工作目录，与 IndexedDB 同步 */
+  /** 扫描工作目录，与 IndexedDB 同步；文件修改时间比记录新则视为外部编辑器的改动 */
   const syncFsArticles = async () => {
     const fileEntries = await fsService.scanDirectory()
     const synced: Article[] = []
@@ -165,8 +165,30 @@ export const useArticleStore = defineStore('article', () => {
     for (const entry of fileEntries) {
       const existing = await articleDB.getArticleByPath(entry.name)
       if (existing && existing.isDeleted === 0) {
-        // 已有记录，复用
-        synced.push(existing)
+        let art = existing
+        // 外部变更检测：文件比记录新 → 重新读取（正在编辑且有未落盘改动时让位给本地）
+        const externalNewer = entry.lastModified > existing.updatedAt + 1000
+        if (externalNewer) {
+          const unsavedHere =
+            existing.id === currentArticleId.value && currentContent.value !== existing.content
+          if (!unsavedHere) {
+            const content = await fsService.readFile(entry.handle)
+            const changes = {
+              content,
+              updatedAt: entry.lastModified,
+              wordCount: countWords(content),
+            }
+            await articleDB.updateArticle(existing.id, changes)
+            art = { ...existing, ...changes }
+            searchUpdate(art)
+            const changed = await syncLinksForArticle(existing.id, content)
+            if (changed) linkVersion.value++
+            if (existing.id === currentArticleId.value && !currentLocked.value) {
+              currentContent.value = content // 编辑器与预览跟随外部新内容
+            }
+          }
+        }
+        synced.push(art)
       } else if (existing && existing.isDeleted === 1) {
         // 之前软删除了，恢复
         await articleDB.updateArticle(existing.id, { isDeleted: 0, updatedAt: Date.now() })
@@ -796,6 +818,17 @@ export const useArticleStore = defineStore('article', () => {
     return { imported, skipped: files.length - imported }
   }
 
+  /** 窗口重新聚焦时检查文件夹的外部修改（3 秒节流） */
+  let lastExternalScan = 0
+  const syncExternalChanges = async () => {
+    if (!isFsMode.value) return
+    const now = Date.now()
+    if (now - lastExternalScan < 3000) return
+    lastExternalScan = now
+    await syncFsArticles()
+    buildIndex(articles.value)
+  }
+
   /** WebDAV 等外部同步后：重载数据并重建搜索索引与双链 */
   const refreshAfterExternalSync = async () => {
     await reloadMeta()
@@ -918,6 +951,7 @@ export const useArticleStore = defineStore('article', () => {
     openByTitle,
     // 外部同步
     refreshAfterExternalSync,
+    syncExternalChanges,
     // 文件夹 / 标签
     folders,
     loadFolders,

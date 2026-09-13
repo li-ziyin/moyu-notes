@@ -12,6 +12,8 @@ export interface WorkspaceInfo {
 export interface FileEntry {
   name: string
   handle: FileSystemFileHandle
+  /** 文件最后修改时间（毫秒），用于检测外部编辑器对文件的修改 */
+  lastModified: number
 }
 
 let workspaceHandle: FileSystemDirectoryHandle | null = null
@@ -66,7 +68,8 @@ export async function scanDirectory(): Promise<FileEntry[]> {
   const entries: FileEntry[] = []
   for await (const [name, handle] of workspaceHandle.entries()) {
     if (handle.kind === 'file' && name.endsWith('.md')) {
-      entries.push({ name, handle: handle as FileSystemFileHandle })
+      const file = await (handle as FileSystemFileHandle).getFile()
+      entries.push({ name, handle: handle as FileSystemFileHandle, lastModified: file.lastModified })
     }
   }
   return entries
@@ -157,7 +160,8 @@ export async function importFile(): Promise<FileEntry | null> {
 
   // 复制到工作目录（如有重名会自动加后缀）
   const newHandle = await createFile(file.name, content)
-  return { name: newHandle.name, handle: newHandle }
+  const newFile = await newHandle.getFile()
+  return { name: newHandle.name, handle: newHandle, lastModified: newFile.lastModified }
 }
 
 /** 关闭当前工作目录 */
