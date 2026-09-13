@@ -777,6 +777,25 @@ export const useArticleStore = defineStore('article', () => {
     return id
   }
 
+  /** 拖拽 .md 文件导入：DB 模式入库；文件夹模式写为磁盘文件后统一扫描同步 */
+  const importDroppedFiles = async (files: File[]) => {
+    const mdFiles = files.filter((f) => /\.md$/i.test(f.name))
+    if (mdFiles.length === 0) return { imported: 0, skipped: files.length }
+
+    let imported = 0
+    for (const f of mdFiles) {
+      const text = await f.text()
+      if (isFsMode.value) {
+        await fsService.createFile(f.name, text) // 重名自动加后缀
+      } else {
+        await importArticleFromDb(f.name, text)
+      }
+      imported++
+    }
+    if (isFsMode.value) await syncFsArticles()
+    return { imported, skipped: files.length - imported }
+  }
+
   /** WebDAV 等外部同步后：重载数据并重建搜索索引与双链 */
   const refreshAfterExternalSync = async () => {
     await reloadMeta()
@@ -878,6 +897,7 @@ export const useArticleStore = defineStore('article', () => {
     closeWorkspace,
     importMarkdownFile,
     importArticleFromDb,
+    importDroppedFiles,
     loadArticles,
     createArticle,
     updateCurrentArticle,

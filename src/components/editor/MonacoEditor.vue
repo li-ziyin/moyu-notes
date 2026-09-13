@@ -23,6 +23,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'change', value: string): void
   (e: 'imagePaste', file: File): void
+  (e: 'cursorMove', pos: { line: number; column: number }): void
 }>()
 
 const editorContainer = ref<HTMLDivElement>()
@@ -239,6 +240,11 @@ onMounted(async () => {
     const value = editorInstance.getValue()
     emit('update:modelValue', value)
     emit('change', value)
+  })
+
+  // 光标位置（状态栏显示 行/列）
+  editorInstance.onDidChangeCursorPosition((e: any) => {
+    emit('cursorMove', { line: e.position.lineNumber, column: e.position.column })
   })
 
   // IME 组合追踪：组合期间的 Enter 是确认候选词，不触发智能续行

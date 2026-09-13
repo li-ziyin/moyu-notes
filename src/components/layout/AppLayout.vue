@@ -1,5 +1,11 @@
 <template>
-  <div class="app-shell">
+  <div
+    class="app-shell"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent
+    @dragleave.prevent="onDragLeave"
+    @drop.prevent="onDrop"
+  >
     <!-- ── 顶栏 ── -->
     <header class="topbar">
       <div class="topbar-left">
@@ -160,6 +166,16 @@
     <!-- ── 备份提醒（右上角浮出） ── -->
     <BackupToast />
 
+    <!-- ── 拖拽 .md 导入遮罩 ── -->
+    <transition name="fade">
+      <div v-if="dragDepth > 0" class="drop-overlay">
+        <div class="drop-card">
+          <n-icon size="28"><cloud-upload-outline /></n-icon>
+          <div class="drop-text">松开鼠标，导入 .md 笔记</div>
+        </div>
+      </div>
+    </transition>
+
     <SearchPanel ref="searchPanelRef" @select="onSearchSelect" />
   </div>
 </template>
@@ -178,6 +194,7 @@ import {
   GitNetworkOutline,
   ScanOutline,
   ContractOutline,
+  CloudUploadOutline,
 } from '@vicons/ionicons5'
 import SideBar from '@/components/sidebar/SideBar.vue'
 import EditorArea from '@/components/editor/EditorArea.vue'
@@ -280,6 +297,24 @@ async function scrollToHeading(item: OutlineItem) {
   }
 }
 
+// ── 拖拽 .md 导入 ──
+const dragDepth = ref(0)
+
+function onDragEnter(e: DragEvent) {
+  if (e.dataTransfer?.types.includes('Files')) dragDepth.value++
+}
+function onDragLeave() {
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+async function onDrop(e: DragEvent) {
+  dragDepth.value = 0
+  const files = [...(e.dataTransfer?.files ?? [])]
+  if (files.length === 0) return
+  const { imported } = await articleStore.importDroppedFiles(files)
+  if (imported === 0) return
+  buildIndex(articleStore.articles)
+}
+
 // Ctrl+P 打开搜索（全局监听）
 function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
@@ -306,6 +341,38 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   background: var(--bg-canvas);
+  color: var(--text-primary);
+  position: relative;
+}
+
+// ── 拖拽导入遮罩 ──
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  background: var(--accent-soft);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 48px;
+  border: 2px dashed var(--accent-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-pop);
+  color: var(--accent-color);
+}
+
+.drop-text {
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
 }
 

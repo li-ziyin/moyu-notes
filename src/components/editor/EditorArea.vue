@@ -103,15 +103,16 @@
     <div class="editor-body">
       <template v-if="articleStore.currentArticle">
         <!-- 解锁后的编辑器 -->
-        <MonacoEditor
-          v-if="!articleStore.currentLocked"
-          ref="monacoRef"
-          v-model="content"
-          :theme="theme"
-          :article-key="articleStore.currentArticleId"
-          @change="onContentChange"
-          @image-paste="onImagePaste"
-        />
+      <MonacoEditor
+        v-if="!articleStore.currentLocked"
+        ref="monacoRef"
+        v-model="content"
+        :theme="theme"
+        :article-key="articleStore.currentArticleId"
+        @change="onContentChange"
+        @image-paste="onImagePaste"
+        @cursor-move="onCursorMove"
+      />
         <!-- 加密锁屏 -->
         <div v-else class="lock-screen">
           <div class="lock-mark">
@@ -150,7 +151,24 @@
             打开本地文件夹
           </button>
         </div>
-        <p class="empty-hint">快捷键：Ctrl+P 搜索 · Ctrl+B 加粗 · Ctrl+K 插入链接 · [[ 双链笔记</p>
+        <p class="empty-hint">快捷键：Ctrl+P 搜索 · Ctrl+S 保存 · Ctrl+B 加粗 · [[ 双链笔记</p>
+      </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div v-if="articleStore.currentArticle && !articleStore.currentLocked" class="status-bar">
+      <div class="status-group">
+        <span>字数 {{ wordCount }}</span>
+        <span class="status-divider"></span>
+        <span>字符 {{ charCount }}</span>
+      </div>
+      <div class="status-group">
+        <span>行 {{ cursorPos.line }}，列 {{ cursorPos.column }}</span>
+        <span class="status-divider"></span>
+        <span class="save-state" :class="saveStatus">
+          <span class="save-dot"></span>
+          {{ saveStatus === 'saved' ? '已保存' : '保存中…' }}
+        </span>
       </div>
     </div>
 
@@ -182,6 +200,8 @@ import { useDebounce } from '@/composables/useDebounce'
 import { getSnapshots, createSnapshot } from '@/services/snapshot'
 import { saveAsset } from '@/services/assets'
 import { exportArticle } from '@/services/export'
+import { countWords } from '@/utils/wordCount'
+import { onMounted, onBeforeUnmount } from 'vue'
 import type { Snapshot } from '@/types/article'
 
 const settingStore = useSettingStore()
@@ -195,6 +215,16 @@ const titleInputRef = ref<HTMLInputElement>()
 const unlockPw = ref('')
 const unlockError = ref('')
 
+// ── 状态栏 ──
+const saveStatus = ref<'saved' | 'saving'>('saved')
+const cursorPos = ref({ line: 1, column: 1 })
+const wordCount = computed(() => countWords(content.value))
+const charCount = computed(() => content.value.length)
+
+function onCursorMove(pos: { line: number; column: number }) {
+  cursorPos.value = pos
+}
+
 // 内容同步：只在 currentContent 与本地不一致时写入（文章切换 / 快照恢复 / 解锁）
 // 打字过程中两者始终相等，因此不会触发 Monaco 的 setValue，杜绝光标跳动
 watch(
@@ -202,6 +232,7 @@ watch(
   (val) => {
     if (val !== content.value) {
       content.value = val
+      saveStatus.value = 'saved'
     }
   }
 )
@@ -229,12 +260,34 @@ watch(
 const debouncedSave = useDebounce(async (newContent: string) => {
   if (!articleStore.currentArticle) return
   await articleStore.updateCurrentArticle({ content: newContent })
+  saveStatus.value = 'saved'
 }, 800)
 
 const onContentChange = (newContent: string) => {
+  saveStatus.value = 'saving'
   articleStore.currentContent = newContent
   debouncedSave(newContent)
 }
+
+/** Ctrl+S：取消等待中的防抖，立即落盘 */
+async function saveNow() {
+  if (!articleStore.currentArticle || articleStore.currentLocked) return
+  saveStatus.value = 'saving'
+  await articleStore.updateCurrentArticle({ content: content.value })
+  saveStatus.value = 'saved'
+}
+
+// 全局拦截 Ctrl/Cmd+S（阻止浏览器"保存网页"弹窗，改为保存笔记）
+function onGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    if (e.repeat) return
+    saveNow()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
 
 const saveTitle = () => {
   if (!articleStore.currentArticle) return
@@ -765,6 +818,54 @@ function getTabTitle(id: string): string {
     max-width: 860px;
     width: 100%;
   }
+}
+
+// ── 状态栏 ──
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 20px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-divider {
+  width: 1px;
+  height: 10px;
+  background: var(--border-color);
+}
+
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.save-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success-color);
+}
+
+.save-state.saving .save-dot {
+  background: var(--warning-color);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 // ── 空状态欢迎页 ──
