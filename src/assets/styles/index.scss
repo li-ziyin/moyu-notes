@@ -28,6 +28,24 @@ body {
   background: var(--accent-soft);
 }
 
+// 键盘导航可见性：Tab 聚焦时显示焦点环
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+// 尊重系统"减弱动态效果"设置
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 button {
   font-family: inherit;
   user-select: none;

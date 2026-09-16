@@ -120,7 +120,7 @@
             <n-icon size="26"><lock-closed-outline /></n-icon>
           </div>
           <div class="lock-title">此笔记已加密</div>
-          <p class="lock-sub">输入密码解锁查看与编辑，数据以 AES-GCM 加密存储</p>
+          <p class="lock-sub">输入密码解锁查看与编辑，密码不会上传到任何服务器</p>
           <form class="lock-form" @submit.prevent="doUnlock">
             <input
               v-model="unlockPw"
@@ -141,7 +141,7 @@
       <div v-else class="editor-empty">
         <div class="empty-mark">墨</div>
         <h2 class="empty-title">{{ articleStore.articles.length > 0 ? '选择一篇笔记开始写作' : '开始你的第一篇笔记' }}</h2>
-        <p class="empty-sub">所有内容保存在{{ articleStore.isFsMode ? '本地工作目录' : '你的浏览器中' }}，隐私安全</p>
+        <p class="empty-sub">所有内容只保存在这台设备上，不会上传到任何服务器</p>
         <div class="empty-actions">
           <button class="cta" @click="articleStore.createArticle">
             <n-icon size="16"><add-outline /></n-icon>
