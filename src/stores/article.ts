@@ -48,7 +48,10 @@ export const useArticleStore = defineStore('article', () => {
   )
 
   // 切换文章时同步 currentContent；加密文章未解锁时内容置空
+  // 令牌防竞态：快速切换时，慢速 IO（FS 读取/解密）的过期结果不得覆盖当前内容
+  let contentWatchToken = 0
   watch(currentArticle, async (article) => {
+    const token = ++contentWatchToken
     if (!article) {
       currentContent.value = ''
       return
@@ -57,9 +60,12 @@ export const useArticleStore = defineStore('article', () => {
       const pw = passwordCache.get(article.id)
       if (pw && unlockedIds.value.includes(article.id)) {
         try {
-          currentContent.value = await decryptText(pw, article.content)
+          const plain = await decryptText(pw, article.content)
+          if (token !== contentWatchToken) return
+          currentContent.value = plain
         } catch {
           // 密码缓存异常（理论上不会发生），回退锁定态
+          if (token !== contentWatchToken) return
           unlockedIds.value = unlockedIds.value.filter((x) => x !== article.id)
           passwordCache.delete(article.id)
           currentContent.value = ''
@@ -72,8 +78,11 @@ export const useArticleStore = defineStore('article', () => {
     if (isFsMode.value && article.filePath) {
       const handle = fileHandles.get(article.id)
       if (handle) {
-        currentContent.value = await fsService.readFile(handle)
+        const content = await fsService.readFile(handle)
+        if (token !== contentWatchToken) return
+        currentContent.value = content
       } else {
+        if (token !== contentWatchToken) return
         currentContent.value = article.content
       }
     } else {
@@ -928,6 +937,7 @@ export const useArticleStore = defineStore('article', () => {
     dismissPendingWorkspace,
     openFolder,
     closeWorkspace,
+    syncFsArticles,
     importMarkdownFile,
     importArticleFromDb,
     importDroppedFiles,
