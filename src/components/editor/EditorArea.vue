@@ -1,5 +1,5 @@
 <template>
-  <div class="editor-wrapper" @click="showSnapshots = false">
+  <div class="editor-wrapper" @click="snapshotsRef?.close()">
     <!-- 标签栏 -->
     <div class="tab-bar" v-if="articleStore.openTabs.length > 0" @click.stop>
       <div
@@ -34,11 +34,9 @@
       <span v-else class="doc-title-placeholder">墨语笔记</span>
 
       <div class="title-actions" v-if="articleStore.currentArticle" @click.stop>
-        <!-- 导出 -->
         <button class="icon-btn" title="导出为 .md 文件" @click="exportCurrent">
           <n-icon size="16"><download-outline /></n-icon>
         </button>
-        <!-- 加密 / 解锁后重新锁定 -->
         <button
           class="icon-btn"
           :title="articleStore.currentEncrypted ? '重新锁定笔记' : '加密此笔记'"
@@ -50,24 +48,7 @@
           </n-icon>
         </button>
         <!-- 快照历史（加密笔记不可用） -->
-        <div class="snap-wrap" v-if="!articleStore.currentEncrypted">
-          <button class="icon-btn" :class="{ active: showSnapshots }" title="快照历史（每 5 分钟自动保存）" @click="openSnapshots">
-            <n-icon size="16"><time-outline /></n-icon>
-          </button>
-          <div v-if="showSnapshots" class="snap-panel">
-            <div class="snap-header">快照历史</div>
-            <div v-if="snapshots.length > 0" class="snap-list">
-              <div v-for="snap in snapshots" :key="snap.id" class="snap-item" @click="restoreSnapshot(snap)">
-                <span class="snap-time">
-                  {{ fmtTime(snap.createdAt) }}
-                  <span v-if="snap.label" class="snap-label">{{ snap.label }}</span>
-                </span>
-                <span class="snap-preview">{{ snap.content.replace(/\s+/g, ' ').slice(0, 40) }}</span>
-              </div>
-            </div>
-            <div v-else class="snap-empty">暂无快照<br />编辑内容后每 5 分钟自动生成</div>
-          </div>
-        </div>
+        <SnapshotsPanel v-if="!articleStore.currentEncrypted" ref="snapshotsRef" @restore="restoreSnapshot" />
 
         <button class="icon-btn danger" title="删除笔记（可在回收站恢复）" @click="deleteArticle">
           <n-icon size="16"><trash-outline /></n-icon>
@@ -76,66 +57,28 @@
     </div>
 
     <!-- 标签行 -->
-    <div v-if="articleStore.currentArticle" class="tags-row">
-      <span v-for="tag in currentTags" :key="tag" class="tag-chip">
-        # {{ tag }}
-        <button class="tag-remove" :title="`移除标签「${tag}」`" @click="articleStore.removeTag(articleStore.currentArticle!.id, tag)">
-          <n-icon size="10"><close-outline /></n-icon>
-        </button>
-      </span>
-      <button v-if="!addingTag" class="tag-add" @click="startAddTag">
-        <n-icon size="12"><pricetag-outline /></n-icon>
-        添加标签
-      </button>
-      <input
-        v-else
-        ref="tagInputRef"
-        v-model="newTag"
-        class="tag-input"
-        placeholder="标签名，回车确认"
-        @keydown.enter="confirmAddTag"
-        @keydown.escape="addingTag = false"
-        @blur="confirmAddTag"
-      />
-    </div>
+    <TagsRow
+      v-if="articleStore.currentArticle"
+      :tags="articleStore.currentArticle.tags ?? []"
+      @add="onAddTag"
+      @remove="onRemoveTag"
+    />
 
     <!-- 编辑器 / 锁屏 / 空状态 -->
     <div class="editor-body">
       <template v-if="articleStore.currentArticle">
-        <!-- 解锁后的编辑器 -->
-      <MonacoEditor
-        v-if="!articleStore.currentLocked"
-        ref="monacoRef"
-        v-model="content"
-        :theme="theme"
-        :article-key="articleStore.currentArticleId"
-        :typewriter="typewriter"
-        @change="onContentChange"
-        @image-paste="onImagePaste"
-        @cursor-move="onCursorMove"
-      />
-        <!-- 加密锁屏 -->
-        <div v-else class="lock-screen">
-          <div class="lock-mark">
-            <n-icon size="26"><lock-closed-outline /></n-icon>
-          </div>
-          <div class="lock-title">此笔记已加密</div>
-          <p class="lock-sub">输入密码解锁查看与编辑，密码不会上传到任何服务器</p>
-          <form class="lock-form" @submit.prevent="doUnlock">
-            <input
-              v-model="unlockPw"
-              type="password"
-              class="lock-input"
-              placeholder="输入密码"
-              autofocus
-            />
-            <button type="submit" class="lock-btn">
-              <n-icon size="15"><lock-open-outline /></n-icon>
-              解锁
-            </button>
-          </form>
-          <div v-if="unlockError" class="lock-error">{{ unlockError }}</div>
-        </div>
+        <MonacoEditor
+          v-if="!articleStore.currentLocked"
+          ref="monacoRef"
+          v-model="content"
+          :theme="theme"
+          :article-key="articleStore.currentArticleId"
+          :typewriter="typewriter"
+          @change="onContentChange"
+          @image-paste="onImagePaste"
+          @cursor-move="onCursorMove"
+        />
+        <LockScreen v-else />
       </template>
 
       <div v-else class="editor-empty">
@@ -157,30 +100,14 @@
     </div>
 
     <!-- 状态栏 -->
-    <div v-if="articleStore.currentArticle && !articleStore.currentLocked" class="status-bar">
-      <div class="status-group">
-        <span>字数 {{ wordCount }}</span>
-        <span class="status-divider"></span>
-        <span>字符 {{ charCount }}</span>
-      </div>
-      <div class="status-group">
-        <span>行 {{ cursorPos.line }}，列 {{ cursorPos.column }}</span>
-        <span class="status-divider"></span>
-        <button
-          class="focus-toggle"
-          :class="{ active: typewriter }"
-          :title="typewriter ? '关闭专注模式（打字机滚动 + 当前行高亮）' : '开启专注模式（打字机滚动 + 当前行高亮）'"
-          @click="typewriter = !typewriter"
-        >
-          专注
-        </button>
-        <span class="status-divider"></span>
-        <span class="save-state" :class="saveStatus">
-          <span class="save-dot"></span>
-          {{ saveStatus === 'saved' ? '已保存' : '保存中…' }}
-        </span>
-      </div>
-    </div>
+    <StatusBar
+      v-if="articleStore.currentArticle && !articleStore.currentLocked"
+      v-model:typewriter="typewriter"
+      :word-count="wordCount"
+      :char-count="charCount"
+      :cursor-pos="cursorPos"
+      :save-status="saveStatus"
+    />
 
     <!-- 加密设置密码弹窗 -->
     <PasswordDialog v-model="showPwDialog" title="加密此笔记" mode="set" @confirm="doEncrypt" />
@@ -188,30 +115,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, nextTick } from 'vue'
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { NIcon } from 'naive-ui'
 import {
   CloseOutline,
-  TimeOutline,
   TrashOutline,
   AddOutline,
   FolderOutline,
   LockClosedOutline,
   LockOpenOutline,
   DownloadOutline,
-  PricetagOutline,
 } from '@vicons/ionicons5'
 import MonacoEditor from './MonacoEditor.vue'
+import LockScreen from './LockScreen.vue'
+import TagsRow from './TagsRow.vue'
+import SnapshotsPanel from './SnapshotsPanel.vue'
+import StatusBar from './StatusBar.vue'
 import PasswordDialog from '@/components/common/PasswordDialog.vue'
 import { useSettingStore } from '@/stores/setting'
 import { useArticleStore } from '@/stores/article'
 import { storeToRefs } from 'pinia'
 import { useDebounce } from '@/composables/useDebounce'
-import { getSnapshots, createSnapshot } from '@/services/snapshot'
+import { createSnapshot } from '@/services/snapshot'
 import { saveAsset } from '@/services/assets'
 import { exportArticle } from '@/services/export'
 import { countWords } from '@/utils/wordCount'
-import { onMounted, onBeforeUnmount } from 'vue'
 import type { Snapshot } from '@/types/article'
 
 const settingStore = useSettingStore()
@@ -222,8 +150,7 @@ const title = ref('')
 const content = ref('')
 const monacoRef = ref<InstanceType<typeof MonacoEditor>>()
 const titleInputRef = ref<HTMLInputElement>()
-const unlockPw = ref('')
-const unlockError = ref('')
+const snapshotsRef = ref<InstanceType<typeof SnapshotsPanel>>()
 
 // ── 状态栏 ──
 const saveStatus = ref<'saved' | 'saving'>('saved')
@@ -281,8 +208,6 @@ watch(
   () => articleStore.currentArticleId,
   () => {
     title.value = articleStore.currentArticle?.title ?? ''
-    unlockPw.value = ''
-    unlockError.value = ''
   },
   { immediate: true }
 )
@@ -342,24 +267,16 @@ function deleteArticle() {
 }
 
 // ── 标签 ──
-const addingTag = ref(false)
-const newTag = ref('')
-const tagInputRef = ref<HTMLInputElement>()
-
-const currentTags = computed(() => articleStore.currentArticle?.tags ?? [])
-
-async function startAddTag() {
-  addingTag.value = true
-  newTag.value = ''
-  await nextTick()
-  tagInputRef.value?.focus()
+function onAddTag(tag: string) {
+  if (articleStore.currentArticle) {
+    articleStore.addTag(articleStore.currentArticle.id, tag)
+  }
 }
 
-async function confirmAddTag() {
-  if (!addingTag.value || !articleStore.currentArticle) return
-  const tag = newTag.value.trim()
-  addingTag.value = false
-  if (tag) await articleStore.addTag(articleStore.currentArticle.id, tag)
+function onRemoveTag(tag: string) {
+  if (articleStore.currentArticle) {
+    articleStore.removeTag(articleStore.currentArticle.id, tag)
+  }
 }
 
 // ── 图片粘贴 ──
@@ -387,16 +304,6 @@ async function doEncrypt(password: string) {
   if (!ok) alert('加密失败')
 }
 
-async function doUnlock() {
-  unlockError.value = ''
-  if (!unlockPw.value) return
-  const ok = await articleStore.unlockCurrent(unlockPw.value)
-  if (!ok) {
-    unlockError.value = '密码错误，请重试'
-    unlockPw.value = ''
-  }
-}
-
 function isTabEncrypted(id: string): boolean {
   const art = articleStore.articles.find((a) => a.id === id)
   return !!art && art.encrypted === 1
@@ -413,17 +320,7 @@ async function exportCurrent() {
   await exportArticle(art, content.value)
 }
 
-// ── 快照历史 ──
-const showSnapshots = ref(false)
-const snapshots = ref<Snapshot[]>([])
-
-async function openSnapshots() {
-  showSnapshots.value = !showSnapshots.value
-  if (showSnapshots.value && articleStore.currentArticle) {
-    snapshots.value = await getSnapshots(articleStore.currentArticle.id)
-  }
-}
-
+// ── 快照恢复（面板状态在 SnapshotsPanel 内） ──
 async function restoreSnapshot(snap: Snapshot) {
   if (!articleStore.currentArticle) return
   // 恢复前把当前内容备份为快照，误恢复可随时找回
@@ -438,13 +335,6 @@ async function restoreSnapshot(snap: Snapshot) {
   content.value = snap.content
   articleStore.currentContent = snap.content
   await articleStore.updateCurrentArticle({ content: snap.content })
-  showSnapshots.value = false
-}
-
-function fmtTime(ts: number): string {
-  const d = new Date(ts)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function getTabTitle(id: string): string {
@@ -607,245 +497,6 @@ function getTabTitle(id: string): string {
   }
 }
 
-// ── 快照下拉 ──
-.snap-wrap {
-  position: relative;
-}
-
-.snap-panel {
-  position: absolute;
-  top: 36px;
-  right: 0;
-  width: 300px;
-  max-height: 320px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-pop);
-  z-index: 50;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.snap-header {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  padding: 12px 14px 8px;
-  flex-shrink: 0;
-}
-
-.snap-list {
-  overflow: auto;
-  padding: 0 6px 8px;
-}
-
-.snap-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-
-  &:hover {
-    background: var(--bg-tertiary);
-  }
-}
-
-.snap-time {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-color);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.snap-label {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--warning-color);
-  background: rgba(210, 153, 34, 0.12);
-  border-radius: 4px;
-  padding: 0 5px;
-}
-
-.snap-preview {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.snap-empty {
-  padding: 20px 14px 24px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-tertiary);
-  line-height: 1.8;
-}
-
-// ── 标签行 ──
-.tags-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 20px 10px;
-  flex-shrink: 0;
-}
-
-.tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--accent-color);
-  background: var(--accent-soft);
-  border-radius: 999px;
-  padding: 3px 4px 3px 9px;
-}
-
-.tag-remove {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-
-  &:hover {
-    background: rgba(79, 107, 237, 0.2);
-  }
-}
-
-.tag-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-  background: transparent;
-  border: 1px dashed var(--border-strong);
-  border-radius: 999px;
-  padding: 3px 10px;
-  cursor: pointer;
-  transition: all 0.15s;
-
-  &:hover {
-    color: var(--accent-color);
-    border-color: var(--accent-color);
-  }
-}
-
-.tag-input {
-  width: 140px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--accent-color);
-  border-radius: 999px;
-  color: var(--text-primary);
-  font-size: 12px;
-  padding: 4px 10px;
-  outline: none;
-
-  &::placeholder {
-    color: var(--text-tertiary);
-  }
-}
-
-// ── 加密锁屏 ──
-.lock-screen {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding-bottom: 40px;
-}
-
-.lock-mark {
-  width: 64px;
-  height: 64px;
-  border-radius: 20px;
-  background: rgba(210, 153, 34, 0.12);
-  color: var(--warning-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 20px;
-}
-
-.lock-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-}
-
-.lock-sub {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  margin-bottom: 24px;
-}
-
-.lock-form {
-  display: flex;
-  gap: 8px;
-}
-
-.lock-input {
-  width: 220px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 14px;
-  padding: 9px 12px;
-  outline: none;
-  transition: border-color 0.15s;
-
-  &:focus {
-    border-color: var(--accent-color);
-  }
-
-  &::placeholder {
-    color: var(--text-tertiary);
-  }
-}
-
-.lock-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 16px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--accent-color);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--accent-hover);
-  }
-}
-
-.lock-error {
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--danger-color);
-}
-
 // ── 编辑器主体：约束到舒适阅读宽度，沉浸模式下居中成窄栏 ──
 .editor-body {
   flex: 1;
@@ -858,76 +509,6 @@ function getTabTitle(id: string): string {
     max-width: 860px;
     width: 100%;
   }
-}
-
-// ── 状态栏 ──
-.status-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px 20px;
-  border-top: 1px solid var(--border-color);
-  font-size: 11px;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.status-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.status-divider {
-  width: 1px;
-  height: 10px;
-  background: var(--border-color);
-}
-
-.focus-toggle {
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 1px 7px;
-  border-radius: 999px;
-  transition: background 0.15s, color 0.15s;
-
-  &:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-  }
-
-  &.active {
-    background: var(--accent-soft);
-    color: var(--accent-color);
-    font-weight: 600;
-  }
-}
-
-.save-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.save-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--success-color);
-}
-
-.save-state.saving .save-dot {
-  background: var(--warning-color);
-  animation: pulse 1s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
 }
 
 // ── 空状态欢迎页 ──
