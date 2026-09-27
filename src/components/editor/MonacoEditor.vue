@@ -37,6 +37,10 @@ let completionDisposable: any = null
 const { register: registerShortcuts, dispose: disposeShortcuts } =
   useMarkdownShortcuts()
 
+// IME 组合状态追踪（监听器在卸载时移除）
+const onCompStart = () => (isComposing = true)
+const onCompEnd = () => (isComposing = false)
+
 // ── 智能续行：通过 addCommand 真正接管 Enter 键（onKeyDown + preventDefault 在 Monaco 中不可靠） ──
 let isComposing = false
 
@@ -271,8 +275,8 @@ onMounted(async () => {
 
   // IME 组合追踪：组合期间的 Enter 是确认候选词，不触发智能续行
   editorDom = editorInstance.getDomNode()
-  editorDom?.addEventListener('compositionstart', () => (isComposing = true), true)
-  editorDom?.addEventListener('compositionend', () => (isComposing = false), true)
+  editorDom?.addEventListener('compositionstart', onCompStart, true)
+  editorDom?.addEventListener('compositionend', onCompEnd, true)
   editorDom?.addEventListener('paste', onPaste)
 
   registerShortcuts(editorInstance, monacoInstance)
@@ -330,6 +334,8 @@ onBeforeUnmount(() => {
   disposeShortcuts()
   completionDisposable?.dispose()
   completionDisposable = null
+  editorDom?.removeEventListener('compositionstart', onCompStart, true)
+  editorDom?.removeEventListener('compositionend', onCompEnd, true)
   editorDom?.removeEventListener('paste', onPaste)
   editorDom = null
   if (editorInstance) {
