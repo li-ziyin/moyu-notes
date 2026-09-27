@@ -7,6 +7,7 @@
 
 import { davEnsureDir, davPut, davGet, davDelete, davList } from './webdav'
 import type { WebDAVConfig } from './webdav'
+import { resolveSyncAction } from './timestamp'
 import { db } from '@/services/db'
 import * as articleDB from '@/services/db/article'
 import { createSnapshot } from '@/services/snapshot'
@@ -60,11 +61,13 @@ export async function syncWithWebDAV(
       continue
     }
 
-    if (art.updatedAt > remote.lastModified) {
+    // 秒精度归一后决策：本地毫秒 vs 远端秒级 Last-Modified，同秒噪音不动作
+    const action = resolveSyncAction(art.updatedAt, remote.lastModified)
+    if (action === 'upload') {
       // 本地较新 → 上传
       await davPut(cfg, fileName, art.content)
       report.uploaded++
-    } else if (remote.lastModified > art.updatedAt) {
+    } else if (action === 'download') {
       // 远端较新
       // 加密笔记的密文不可在应用外解密，拒绝远端明文覆盖（需在应用内手动处理）
       if (art.encrypted === 1 || isEncryptedPayload(art.content)) {

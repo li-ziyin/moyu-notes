@@ -228,8 +228,34 @@ const unlockError = ref('')
 // ── 状态栏 ──
 const saveStatus = ref<'saved' | 'saving'>('saved')
 const cursorPos = ref({ line: 1, column: 1 })
-const wordCount = computed(() => countWords(content.value))
 const charCount = computed(() => content.value.length)
+// 字数统计对全文跑正则，超长文档（>50KB）防抖 300ms 计算，短文保持逐键即时
+const wordCount = ref(0)
+const LARGE_COUNT_THRESHOLD = 50 * 1024
+let wordCountTimer: number | null = null
+
+watch(
+  content,
+  (val) => {
+    if (wordCountTimer) {
+      clearTimeout(wordCountTimer)
+      wordCountTimer = null
+    }
+    if (val.length > LARGE_COUNT_THRESHOLD) {
+      wordCountTimer = window.setTimeout(() => {
+        wordCount.value = countWords(val)
+        wordCountTimer = null
+      }, 300)
+    } else {
+      wordCount.value = countWords(val)
+    }
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  if (wordCountTimer) clearTimeout(wordCountTimer)
+})
 
 function onCursorMove(pos: { line: number; column: number }) {
   cursorPos.value = pos

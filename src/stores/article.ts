@@ -8,6 +8,7 @@ import { updateDoc as searchUpdate, removeDoc as searchRemove } from '@/services
 import { createSnapshot, deleteAllSnapshots } from '@/services/snapshot'
 import { deleteAssetsForArticle } from '@/services/assets'
 import { countWords } from '@/utils/wordCount'
+import { seedWelcomeContent } from '@/services/seed'
 import { encryptText, decryptText, isEncryptedPayload } from '@/services/crypto'
 import { syncLinksForArticle, getBacklinks, resolveLinksForTitle } from '@/services/links'
 import { buildIndex } from '@/services/search'
@@ -110,6 +111,11 @@ export const useArticleStore = defineStore('article', () => {
     }
     // 回退：纯 IndexedDB 模式
     await loadArticles()
+    // 空库首次启动：播种示例内容（只播种一次，用户删除后不复活）
+    if (articles.value.length === 0) {
+      await seedWelcomeContent()
+      await Promise.all([loadArticles(), loadFolders()])
+    }
     rebuildAllLinks()
   }
 
@@ -911,6 +917,8 @@ export const useArticleStore = defineStore('article', () => {
     channel = null
     await db.delete()
     localStorage.clear()
+    // 保留播种标记：用户主动清空后不再复现示例内容
+    localStorage.setItem('moyu.seeded', '1')
     location.reload()
   }
 
