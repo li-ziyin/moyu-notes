@@ -163,9 +163,6 @@
     <!-- ── 知识图谱 ── -->
     <GraphPanel v-model:visible="graphVisible" @open="onGraphOpen" />
 
-    <!-- ── 备份提醒（右上角浮出） ── -->
-    <BackupToast />
-
     <!-- ── 拖拽 .md 导入遮罩 ── -->
     <transition name="fade">
       <div v-if="dragDepth > 0" class="drop-overlay">
@@ -199,7 +196,6 @@ import {
 import SideBar from '@/components/sidebar/SideBar.vue'
 import EditorArea from '@/components/editor/EditorArea.vue'
 import PreviewArea from '@/components/preview/PreviewArea.vue'
-import BackupToast from '@/components/common/BackupToast.vue'
 // 按需加载的重型面板：拆为异步 chunk，首屏不加载
 const SearchPanel = defineAsyncComponent(() => import('@/components/search/SearchPanel.vue'))
 const GraphPanel = defineAsyncComponent(() => import('@/components/graph/GraphPanel.vue'))

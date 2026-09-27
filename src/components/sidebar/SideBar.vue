@@ -58,10 +58,17 @@
       <div v-else class="trash-empty">回收站是空的</div>
     </div>
 
-    <!-- 导出全部 -->
-    <button class="export-all" title="把全部笔记打包导出为 zip" @click="onExportAll" :disabled="exporting">
+    <!-- 导出全部（超过 7 天未备份时按钮自带琥珀点提醒） -->
+    <button
+      class="export-all"
+      :class="{ overdue: articleStore.backupReminderVisible }"
+      title="把全部笔记打包导出为 zip"
+      @click="onExportAll"
+      :disabled="exporting"
+    >
       <n-icon size="14"><archive-outline /></n-icon>
-      {{ exporting ? '打包中…' : '导出全部 (.zip)' }}
+      {{ exporting ? '打包中…' : articleStore.backupReminderVisible ? '导出全部 · 建议备份' : '导出全部 (.zip)' }}
+      <span v-if="articleStore.backupReminderVisible" class="overdue-dot" />
     </button>
 
     <!-- WebDAV 同步 -->
@@ -76,7 +83,15 @@
       清空全部数据
     </button>
 
-    <div class="footer">本地优先 · 数据保存在你的设备上</div>
+    <div class="footer">
+      <div v-if="articleStore.backupReminderVisible" class="backup-hint">
+        <span class="backup-hint-text">已 7 天未备份，建议导出存档</span>
+        <button class="backup-hint-dismiss" title="今天不再提醒" @click="articleStore.dismissBackupReminder()">
+          知道了
+        </button>
+      </div>
+      <div>本地优先 · 数据保存在你的设备上</div>
+    </div>
 
     <SyncPanel v-model="showSync" />
 
@@ -394,6 +409,26 @@ async function onWipeAll() {
     opacity: 0.6;
     cursor: default;
   }
+
+  // 备份逾期态：琥珀色按钮 + 呼吸点
+  &.overdue {
+    color: var(--warning-color);
+    background: rgba(210, 153, 34, 0.08);
+
+    &:hover:not(:disabled) {
+      background: rgba(210, 153, 34, 0.14);
+      color: var(--warning-color);
+    }
+
+    .overdue-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--warning-color);
+      flex-shrink: 0;
+      animation: overdue-pulse 2.4s ease-in-out infinite;
+    }
+  }
 }
 
 // ── 危险区：清空全部数据 ──
@@ -426,5 +461,38 @@ async function onWipeAll() {
   padding: 10px 0 2px;
   border-top: 1px solid var(--border-color);
   margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.backup-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.backup-hint-text {
+  text-align: left;
+  line-height: 1.5;
+}
+
+.backup-hint-dismiss {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
 }
 </style>
