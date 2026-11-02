@@ -6,6 +6,8 @@
 
 ## 预览
 
+**在线体验** —— GitHub Pages 已部署，笔记数据仅存于你的浏览器本地：<https://li-ziyin.github.io/moyu-notes/>
+
 **编辑与实时预览** —— 左侧写作，右侧即刻成文：
 
 ![编辑与实时预览](docs/screenshots/editor-dark.png)
